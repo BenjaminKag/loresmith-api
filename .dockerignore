@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Docker-specific
+.docker
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables
+.env
+.env.*
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+
+# System files
+*.DS_Store
+
+# Logs and local files
+*.log
+*.sqlite3
+
+# Static/media (optional if you collect these in Docker instead of locally)
+media/
+staticfiles/
