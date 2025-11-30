@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'core',
     'rest_framework',
     'django_filters',
+    'users',
 ]
 
 MIDDLEWARE = [
@@ -160,3 +161,5 @@ REST_FRAMEWORK = {
     #     "django_filters.rest_framework.DjangoFilterBackend",
     # ],
 }
+
+AUTH_USER_MODEL = "users.User"
