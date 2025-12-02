@@ -3,6 +3,7 @@ Core models for LoreSmith application.
 """
 from django.db import models
 from django.conf import settings
+from django.utils.text import slugify
 
 
 class Location(models.Model):
@@ -188,3 +189,89 @@ class Character(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class Story(models.Model):
+    """Represents a full story or a lore entry."""
+
+    class Meta:
+        ordering = ["parent__id", "order", "title"]
+
+    title = models.CharField(max_length=255)
+    slug = models.SlugField(unique=True, blank=True)
+    summary = models.TextField(blank=True)
+    body = models.TextField(blank=True)
+
+    class Kind(models.TextChoices):
+        STANDALONE = "standalone", "Standalone Entry"
+        ARC = "arc", "Story / Quest Arc"
+        PART = "part", "Part / Chapter / Scene"
+
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.STANDALONE,
+    )
+
+    class StoryType(models.TextChoices):
+        LORE = "lore_entry", "Main Lore Entry"
+        QUEST = "quest", "Quest"
+        BACKSTORY = "backstory", "Backstory"
+        WORLD_EVENT = "world_event", "World Event"
+        MYTH = "myth", "Myth / Legend"
+        DIALOGUE = "dialogue", "Dialogue"
+        OTHER = "other", "Other"
+
+    story_type = models.CharField(
+        max_length=50,
+        choices=StoryType.choices,
+        default=StoryType.LORE,
+        blank=True,
+    )
+
+    in_world_date = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="e.g. 'Year 1107 AE', 'Before the Archon War'"
+    )
+
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="sub_stories",
+    )
+    order = models.PositiveIntegerField(default=0)
+
+    characters = models.ManyToManyField(
+        "Character",
+        blank=True,
+        related_name="stories"
+    )
+    locations = models.ManyToManyField(
+        "Location",
+        blank=True,
+        related_name="stories"
+    )
+    factions = models.ManyToManyField(
+        "Faction",
+        blank=True,
+        related_name="stories"
+    )
+    items = models.ManyToManyField(
+        "Item",
+        blank=True,
+        related_name="stories"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.title
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.title)
+        super().save(*args, **kwargs)
