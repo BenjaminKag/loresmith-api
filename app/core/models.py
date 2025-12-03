@@ -195,7 +195,7 @@ class Story(models.Model):
     """Represents a full story or a lore entry."""
 
     class Meta:
-        ordering = ["parent__id", "order", "title"]
+        ordering = ["kind", "parent__id", "order", "title"]
 
     title = models.CharField(max_length=255)
     slug = models.SlugField(unique=True, blank=True)
@@ -226,7 +226,18 @@ class Story(models.Model):
         max_length=50,
         choices=StoryType.choices,
         default=StoryType.LORE,
-        blank=True,
+    )
+
+    class Visibility(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        PRIVATE = "private", "Private"
+        PUBLIC = "public", "Public"
+        ARCHIVED = "archived", "Archived"
+
+    visibility = models.CharField(
+        max_length=20,
+        choices=Visibility.choices,
+        default=Visibility.PRIVATE,
     )
 
     in_world_date = models.CharField(
@@ -265,6 +276,13 @@ class Story(models.Model):
         related_name="stories"
     )
 
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="stories",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
