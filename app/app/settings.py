@@ -43,9 +43,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'core',
+    'users',
     'rest_framework',
     'django_filters',
-    'users',
+    'drf_spectacular',
 ]
 
 MIDDLEWARE = [
@@ -156,10 +157,20 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Uncomment when you start using filters:
     # "DEFAULT_FILTER_BACKENDS": [
     #     "django_filters.rest_framework.DjangoFilterBackend",
     # ],
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "LoreSmith API",
+    "DESCRIPTION": (
+        "Worldbuilding backend for locations, factions, characters, "
+        "items, and stories."
+    ),
+    "VERSION": "0.1.0",
 }
 
 AUTH_USER_MODEL = "users.User"
