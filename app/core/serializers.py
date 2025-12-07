@@ -30,3 +30,10 @@ class CharacterSerializer(serializers.ModelSerializer):
         model = models.Character
         fields = "__all__"
         read_only_fields = ("id", "created_at", "updated_at", "created_by")
+
+
+class StorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Story
+        fields = "__all__"
+        read_only_fields = ("id", "created_at", "updated_at", "created_by")

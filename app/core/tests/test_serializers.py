@@ -472,3 +472,186 @@ class CharacterSerializerTests(TestCase):
         self.assertEqual(character.extra_data, {})
         self.assertEqual(list(character.affiliations.all()), [])
         self.assertEqual(list(character.equipment.all()), [])
+
+
+class StorySerializerTests(TestCase):
+    """Tests for the StorySerializer."""
+
+    def test_story_serializer_serializes_fields(self):
+        """Serializer should return expected fields for a Story instance."""
+        location = models.Location.objects.create(
+            name="Stormterror's Lair",
+            description="Ruins in Mondstadt.",
+            location_type="ruins",
+        )
+        faction = models.Faction.objects.create(
+            name="Knights of Favonius",
+            description="Protectors of Mondstadt.",
+            faction_type="knightly order",
+        )
+        item = models.Item.objects.create(
+            name="Jade Winged-Spear",
+            item_type="weapon",
+            rarity="5-star",
+        )
+        character = models.Character.objects.create(
+            name="Xiao",
+            description="A vigilant yaksha.",
+        )
+
+        parent_story = models.Story.objects.create(
+            title="Archon War",
+            summary="The great war of the Archons.",
+            body="Long ago...",
+            kind=models.Story.Kind.ARC,
+            story_type=models.Story.StoryType.MYTH,
+            visibility=models.Story.Visibility.PUBLIC,
+            in_world_date="Before the Archon War",
+            order=1,
+        )
+
+        story = models.Story.objects.create(
+            title="Archon War – Prologue",
+            summary="The beginning of the Archon War.",
+            body="It all began when...",
+            kind=models.Story.Kind.PART,
+            story_type=models.Story.StoryType.MYTH,
+            visibility=models.Story.Visibility.PUBLIC,
+            in_world_date="Start of the Archon War",
+            parent=parent_story,
+            order=2,
+        )
+        story.characters.set([character])
+        story.locations.set([location])
+        story.factions.set([faction])
+        story.items.set([item])
+
+        serializer = serializers.StorySerializer(story)
+        data = serializer.data
+
+        self.assertEqual(data["title"], "Archon War – Prologue")
+        self.assertEqual(data["summary"], "The beginning of the Archon War.")
+        self.assertEqual(data["body"], "It all began when...")
+        self.assertEqual(data["kind"], models.Story.Kind.PART)
+        self.assertEqual(data["story_type"], models.Story.StoryType.MYTH)
+        self.assertEqual(data["visibility"], models.Story.Visibility.PUBLIC)
+        self.assertEqual(data["in_world_date"], "Start of the Archon War")
+        self.assertEqual(data["order"], 2)
+
+        self.assertEqual(data["parent"], parent_story.id)
+
+        self.assertEqual(data["characters"], [character.id])
+        self.assertEqual(data["locations"], [location.id])
+        self.assertEqual(data["factions"], [faction.id])
+        self.assertEqual(data["items"], [item.id])
+
+        self.assertIn("slug", data)
+        self.assertEqual(data["slug"], story.slug)
+        self.assertIn("id", data)
+        self.assertIn("created_at", data)
+        self.assertIn("updated_at", data)
+
+    def test_story_serializer_creates_story_with_relations(self):
+        """Serializer should create a Story with related objects."""
+        location = models.Location.objects.create(
+            name="Liyue Harbor",
+            description="A bustling harbor city.",
+            location_type="city",
+        )
+        faction = models.Faction.objects.create(
+            name="Liyue Qixing",
+            description="Leaders of Liyue.",
+            faction_type="government",
+        )
+        item = models.Item.objects.create(
+            name="Primordial Jade Winged-Spear",
+            item_type="weapon",
+            rarity="5-star",
+        )
+        character = models.Character.objects.create(
+            name="Xiao",
+            description="A vigilant yaksha.",
+        )
+        parent_story = models.Story.objects.create(
+            title="Rex Lapis' Contract",
+            summary="The long-standing contract of Liyue.",
+            body="Once upon a time...",
+        )
+
+        payload = {
+            "title": "Rite of Descension",
+            "summary": "The ceremony where Rex Lapis appears.",
+            "body": "Every year, the people of Liyue...",
+            "kind": models.Story.Kind.PART,
+            "story_type": models.Story.StoryType.WORLD_EVENT,
+            "visibility": models.Story.Visibility.PRIVATE,
+            "in_world_date": "Year 1107 AE",
+            "parent": parent_story.id,
+            "order": 3,
+            "characters": [character.id],
+            "locations": [location.id],
+            "factions": [faction.id],
+            "items": [item.id],
+        }
+
+        serializer = serializers.StorySerializer(data=payload)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        story = serializer.save()
+
+        self.assertEqual(story.title, "Rite of Descension")
+        self.assertEqual(
+            story.summary,
+            "The ceremony where Rex Lapis appears."
+        )
+        self.assertEqual(story.body, "Every year, the people of Liyue...")
+        self.assertEqual(story.kind, models.Story.Kind.PART)
+        self.assertEqual(story.story_type, models.Story.StoryType.WORLD_EVENT)
+        self.assertEqual(story.visibility, models.Story.Visibility.PRIVATE)
+        self.assertEqual(story.in_world_date, "Year 1107 AE")
+        self.assertEqual(story.parent, parent_story)
+        self.assertEqual(story.order, 3)
+
+        self.assertEqual(list(story.characters.all()), [character])
+        self.assertEqual(list(story.locations.all()), [location])
+        self.assertEqual(list(story.factions.all()), [faction])
+        self.assertEqual(list(story.items.all()), [item])
+
+        self.assertIsNotNone(story.slug)
+        self.assertTrue(story.slug)
+
+    def test_story_serializer_requires_title(self):
+        """Serializer should require a title field."""
+        payload = {
+            "summary": "No title here.",
+            "body": "This story has no title.",
+        }
+
+        serializer = serializers.StorySerializer(data=payload)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("title", serializer.errors)
+
+    def test_story_serializer_allows_minimal_story(self):
+        """Serializer should allow creating a Story with only a title."""
+        payload = {
+            "title": "Untitled Lore Entry",
+        }
+
+        serializer = serializers.StorySerializer(data=payload)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        story = serializer.save()
+
+        self.assertEqual(story.title, "Untitled Lore Entry")
+        self.assertEqual(story.kind, models.Story.Kind.STANDALONE)
+        self.assertEqual(story.story_type, models.Story.StoryType.LORE)
+        self.assertEqual(story.visibility, models.Story.Visibility.PRIVATE)
+        self.assertEqual(story.in_world_date, "")
+        self.assertIsNone(story.parent)
+        self.assertEqual(story.order, 0)
+        self.assertEqual(list(story.characters.all()), [])
+        self.assertEqual(list(story.locations.all()), [])
+        self.assertEqual(list(story.factions.all()), [])
+        self.assertEqual(list(story.items.all()), [])
+        self.assertIsNotNone(story.slug)
+        self.assertTrue(story.slug)
