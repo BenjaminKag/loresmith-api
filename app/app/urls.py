@@ -1,16 +1,8 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 
-# Optional DRF API setup (uncomment when creating an API)
-
-# from django.urls import include
-# from rest_framework.routers import DefaultRouter
-
-# router = DefaultRouter()
-# router.register("example", ExampleViewSet, basename="example")
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/', include('core.urls')),
 ]
-
-# urlpatterns += router.urls

@@ -30,8 +30,8 @@ class Location(models.Model):
         help_text="If set, this location is inside another location."
     )
 
-    tags = models.JSONField(default=list, blank=True)
-    extra_data = models.JSONField(default=dict, blank=True)
+    tags = models.JSONField(default=list, null=True, blank=True)
+    extra_data = models.JSONField(default=dict, null=True, blank=True)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -73,8 +73,8 @@ class Faction(models.Model):
     )
 
     # To be made a model in the future
-    tags = models.JSONField(default=list, blank=True)
-    extra_data = models.JSONField(default=dict, blank=True)
+    tags = models.JSONField(default=list, null=True, blank=True)
+    extra_data = models.JSONField(default=dict, null=True, blank=True)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -111,8 +111,8 @@ class Item(models.Model):
         help_text="e.g. common, rare, legendary, etc."
     )
 
-    tags = models.JSONField(default=list, blank=True)
-    extra_data = models.JSONField(default=dict, blank=True)
+    tags = models.JSONField(default=list, null=True, blank=True)
+    extra_data = models.JSONField(default=dict, null=True, blank=True)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -135,7 +135,6 @@ class Character(models.Model):
     class Meta:
         ordering = ["name"]
 
-    # Basic identity
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     age = models.IntegerField(null=True, blank=True)
@@ -173,8 +172,8 @@ class Character(models.Model):
         related_name="holders",
     )
 
-    tags = models.JSONField(default=list, blank=True)
-    extra_data = models.JSONField(default=dict, blank=True)
+    tags = models.JSONField(default=list, null=True, blank=True)
+    extra_data = models.JSONField(default=dict, null=True, blank=True)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
