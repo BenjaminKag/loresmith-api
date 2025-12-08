@@ -1,5 +1,5 @@
 """
-Tests for the users app.
+Tests for the user app.
 """
 
 from django.test import TestCase

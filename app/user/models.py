@@ -1,5 +1,5 @@
 """
-Models for the users app.
+Models for the user app.
 """
 
 from django.db import models
