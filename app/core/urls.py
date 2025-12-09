@@ -9,5 +9,6 @@ from core import views
 router = DefaultRouter()
 router.register("locations", views.LocationViewSet, basename="location")
 router.register("factions", views.FactionViewSet, basename="faction")
+router.register("items", views.ItemViewSet, basename="item")
 
 urlpatterns = router.urls
