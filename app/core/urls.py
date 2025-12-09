@@ -10,5 +10,6 @@ router = DefaultRouter()
 router.register("locations", views.LocationViewSet, basename="location")
 router.register("factions", views.FactionViewSet, basename="faction")
 router.register("items", views.ItemViewSet, basename="item")
+router.register("characters", views.CharacterViewSet, basename="character")
 
 urlpatterns = router.urls
