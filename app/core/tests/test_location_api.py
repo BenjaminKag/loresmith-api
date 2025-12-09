@@ -2,9 +2,10 @@
 Tests for the Location API.
 """
 from django.urls import reverse
+from django.contrib.auth import get_user_model
+
 from rest_framework.test import APITestCase
 from rest_framework import status
-from django.contrib.auth import get_user_model
 
 from core import models
 
@@ -17,13 +18,18 @@ def detail_url(location_id):
     return reverse("location-detail", args=[location_id])
 
 
+def create_user(**params):
+    return get_user_model().objects.create_user(**params)
+
+
 class LocationApiTests(APITestCase):
     """Tests for the Location API."""
 
     def setUp(self):
-        self.user = get_user_model().objects.create_user(
+        self.user = create_user(
             email="test@example.com",
-            password="testpass123"
+            password="testpass123",
+            name="Test User",
         )
         self.client.force_authenticate(self.user)
 
@@ -43,6 +49,7 @@ class LocationApiTests(APITestCase):
         location = models.Location.objects.get(id=res.data["id"])
         self.assertEqual(location.description, "A frozen mountain.")
         self.assertEqual(location.location_type, "region")
+        self.assertEqual(location.created_by, self.user)
 
     def test_list_locations(self):
         """GET /api/locations/ should return a list of locations."""
@@ -73,20 +80,6 @@ class LocationApiTests(APITestCase):
         self.assertEqual(res.data["name"], "Dragonspine")
         self.assertEqual(res.data["description"], "A frozen mountain.")
 
-    def test_create_location_sets_created_by(self):
-        """
-        POST should create a location and assign created_by automatically.
-        """
-        payload = {"name": "Inazuma City", "location_type": "city"}
-
-        res = self.client.post(LOCATIONS_URL, payload, format="json")
-        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
-
-        location = models.Location.objects.get(id=res.data["id"])
-        self.assertEqual(location.name, "Inazuma City")
-        self.assertEqual(location.location_type, "city")
-        self.assertEqual(location.created_by, self.user)
-
     def test_anonymous_user_cannot_create(self):
         """Anonymous users should not be able to create locations."""
         self.client.force_authenticate(None)  # logout
@@ -94,7 +87,7 @@ class LocationApiTests(APITestCase):
         payload = {"name": "Snezhnaya"}
 
         res = self.client.post(LOCATIONS_URL, payload, format="json")
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_user_can_update_own_location(self):
         """PATCH should allow the owner to update their location."""
@@ -125,6 +118,8 @@ class LocationApiTests(APITestCase):
         res = self.client.patch(url, {"name": "Hacked!"}, format="json")
 
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        location.refresh_from_db()
+        self.assertEqual(location.name, "Secret Base")
 
     def test_user_can_delete_own_location(self):
         """DELETE should allow the owner to delete their location."""

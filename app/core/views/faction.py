@@ -1,5 +1,5 @@
 """
-ViewSet for Location objects.
+ViewSet for Faction objects.
 """
 from rest_framework import viewsets, permissions
 
@@ -7,14 +7,14 @@ from core import models, serializers
 from core.permissions import IsOwnerOrReadOnly
 
 
-class LocationViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing Location objects via the API."""
+class FactionViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing Faction objects via the API."""
 
-    queryset = models.Location.objects.all().select_related(
-        "parent",
+    queryset = models.Faction.objects.all().select_related(
+        "location",
         "created_by"
     )
-    serializer_class = serializers.LocationSerializer
+    serializer_class = serializers.FactionSerializer
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
         IsOwnerOrReadOnly,
