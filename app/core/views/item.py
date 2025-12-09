@@ -6,7 +6,10 @@ from rest_framework import viewsets, permissions
 from core import models, serializers
 from core.permissions import IsOwnerOrReadOnly
 
+from drf_spectacular.utils import extend_schema
 
+
+@extend_schema(tags=["Items"])
 class ItemViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Item objects via the API."""
 

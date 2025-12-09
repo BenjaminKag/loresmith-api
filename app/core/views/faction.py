@@ -6,7 +6,10 @@ from rest_framework import viewsets, permissions
 from core import models, serializers
 from core.permissions import IsOwnerOrReadOnly
 
+from drf_spectacular.utils import extend_schema
 
+
+@extend_schema(tags=["Factions"])
 class FactionViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Faction objects via the API."""
 

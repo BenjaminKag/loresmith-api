@@ -173,6 +173,7 @@ SPECTACULAR_SETTINGS = {
         "items, and stories."
     ),
     "VERSION": "0.1.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
 
 AUTH_USER_MODEL = "user.User"

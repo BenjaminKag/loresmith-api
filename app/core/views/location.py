@@ -6,7 +6,10 @@ from rest_framework import viewsets, permissions
 from core import models, serializers
 from core.permissions import IsOwnerOrReadOnly
 
+from drf_spectacular.utils import extend_schema
 
+
+@extend_schema(tags=["Locations"])
 class LocationViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Location objects via the API."""
 
