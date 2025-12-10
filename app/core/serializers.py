@@ -39,7 +39,13 @@ class StorySerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Story
         fields = "__all__"
-        read_only_fields = ("id", "slug", "created_at", "updated_at", "created_by")
+        read_only_fields = (
+            "id",
+            "slug",
+            "created_at",
+            "updated_at",
+            "created_by"
+        )
 
 
 class StoryAIAnalysisMetaSerializer(serializers.Serializer):
