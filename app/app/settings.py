@@ -159,6 +159,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
+    "DEFAULT_THROTTLE_RATES": {
+        "ai": "20/day",  # 20 AI calls per user per day
+    },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Uncomment when you start using filters:
     # "DEFAULT_FILTER_BACKENDS": [
@@ -175,5 +178,25 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
+
+# LoreSmith AI configuration settings
+
+LORESMITH_AI_MODEL = os.getenv("LORESMITH_AI_MODEL", "gpt-4.1-mini")
+
+LORESMITH_MAX_OUTPUT_TOKENS = int(
+    os.getenv("LORESMITH_MAX_OUTPUT_TOKENS", "256")
+)
+
+LORESMITH_MAX_INPUT_CHARS = int(
+    os.getenv("LORESMITH_MAX_INPUT_CHARS", "8000")
+)
+
+LORESMITH_DAILY_TOKEN_BUDGET = int(
+    os.getenv("LORESMITH_DAILY_TOKEN_BUDGET", "200000")
+)
+
+LORESMITH_AI_ENABLED = os.getenv("LORESMITH_AI_ENABLED", "true").lower() == "true"
+
+# Custom user model
 
 AUTH_USER_MODEL = "user.User"

@@ -1,12 +1,25 @@
 """
 ViewSet for Story objects.
 """
-from rest_framework import viewsets, permissions
+from rest_framework import (
+    viewsets,
+    permissions,
+    status,
+)
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from core import models, serializers
 from core.permissions import IsOwnerOrReadOnly
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+
+from core.ai_client import (
+    LoreAIService,
+    AiServiceError,
+    DailyBudgetExceeded
+)
+from core.throttling import AIUserThrottle
 
 
 @extend_schema(tags=["Stories"])
@@ -29,6 +42,82 @@ class StoryViewSet(viewsets.ModelViewSet):
         permissions.IsAuthenticatedOrReadOnly,
         IsOwnerOrReadOnly,
     ]
+
+    @extend_schema(
+        tags=["AI"],
+        operation_id="story_analyze",
+        description=(
+            "Analyze this story with the AI assistant. "
+            "Uses the title, summary and body as input and returns "
+            "a structured analysis: summary, themes, tone, strengths, "
+            "weaknesses and suggestions."
+        ),
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=serializers.StoryAIAnalysisSerializer,
+                description="AI analysis returned successfully."
+            ),
+            400: OpenApiResponse(description="Nothing to analyze."),
+            429: OpenApiResponse(description="AI daily budget or rate limit."),
+            503: OpenApiResponse(description="AI service unavailable."),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="analyze",
+        throttle_classes=[AIUserThrottle],
+    )
+    def analyze(self, request, pk=None):
+        story = self.get_object()
+
+        # Build the text to send to AI
+        parts = [
+            story.title or "",
+            story.summary or "",
+            story.body or "",
+        ]
+        text = "\n\n".join(p for p in parts if p and p.strip())
+
+        if not text:
+            return Response(
+                {
+                    "detail": "Nothing to analyze "
+                    "(title/summary/body are empty)."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        service = LoreAIService()
+
+        try:
+            analysis = service.analyze_text(text)
+        except DailyBudgetExceeded as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        except AiServiceError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        response_data = {
+            "entity_type": "story",
+            "entity_id": story.id,
+            "entity_label": story.title,
+            "summary": analysis["summary"],
+            "themes": analysis["themes"],
+            "tone": analysis["tone"],
+            "strengths": analysis["strengths"],
+            "weaknesses": analysis["weaknesses"],
+            "suggestions": analysis["suggestions"],
+            "meta": analysis["meta"],
+        }
+
+        return Response(response_data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="List stories",
