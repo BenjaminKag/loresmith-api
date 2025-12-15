@@ -1,11 +1,41 @@
 # LoreSmith API
 
-LoreSmith is a backend API for worldbuilding and storytelling management.
-It allows writers, game developers, and creative worldbuilders to organize
-stories, characters, factions, locations, and items — while also offering an
-AI-powered assistant that analyzes story content and provides structured feedback.
+[![Checks](https://github.com/BenjaminKag/loresmith-api/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/BenjaminKag/loresmith-api/actions/workflows/checks.yml)
+[![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#-license)
 
-This project represents the **POC (Proof of Concept)** version of the LoreSmith backend.
+
+LoreSmith is a **worldbuilding backend API** for writers, game developers, and creative teams.
+It helps organize **stories, characters, factions, locations, and items**, while providing an **AI-powered story analysis assistant** that delivers structured feedback and insights.
+
+This repository represents the **Proof of Concept (POC)** version of the LoreSmith backend, focused on **API design, data modeling, AI safety, and backend architecture**.
+
+---
+
+## 📸 Demo & Docs
+
+- **Swagger / OpenAPI UI:** 👉 http://127.0.0.1:8000/api/docs
+- **Auth:** Token-based (login via `/user/token/`)
+
+All endpoints are fully documented and testable via Swagger.
+
+---
+
+## 🚀 Quickstart (Docker – Recommended)
+
+```bash
+git clone https://github.com/BenjaminKag/loresmith-api.git
+cd loresmith-api
+cp .env.example .env
+
+docker compose up --build
+docker compose exec app python manage.py migrate
+docker compose exec app python manage.py createsuperuser  # optional
+```
+
+Open:
+👉 http://127.0.0.1:8000/api/docs
+
+ℹ️ Local (venv) setup is documented below for non-Docker users.
 
 ---
 
@@ -20,7 +50,7 @@ The API supports full CRUD for:
 - **Factions**
 - **Items**
 
-These entities can link to each other, forming a structured and interconnected world.
+These entities can reference each other, forming a structured and interconnected world.
 
 ### **Stories**
 - Hierarchical nesting (`parent` + `order`)
@@ -45,6 +75,21 @@ And each entity can appear in many stories.
   - User registration
   - Token-based authentication
   - Retrieving/updating the authenticated user's profile
+
+---
+
+## 🏗 Architecture Overview
+
+LoreSmith is designed as a modular Django REST backend with explicit separation
+between domain logic, user/auth concerns, and external AI dependencies.
+
+- Django REST Framework API exposing CRUD endpoints
+- Core domain logic isolated in `core` app
+- User/auth concerns isolated in `user` app
+- AI analysis behind a bounded client with safety controls
+- Throttling and permissions enforced at the API boundary
+
+This structure allows the API to evolve into async processing (e.g. background AI jobs) without changing external contracts.
 
 ---
 
@@ -76,14 +121,47 @@ The Story AI endpoint allows users to analyze story content using an OpenAI-powe
 - Max input character limit
 - Max output token limit
 
+AI functionality is intentionally constrained to demonstrate **safe LLM integration patterns** in a backend system.
+
 ---
 
-## 📚 API Documentation
+## 🧭 API Tour (5-Minute Overview)
 
-Interactive Swagger UI:
-👉 **http://127.0.0.1:8000/api/docs**
+```bash
+# 1) Authenticate (get token)
+curl -X POST http://127.0.0.1:8000/api/user/token/ \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"password"}'
 
-OpenAPI schema is auto-generated via **drf-spectacular**.
+# → Save the returned token for the next requests
+
+
+# 2) Create a story
+curl -X POST http://127.0.0.1:8000/api/stories/ \
+  -H "Authorization: Token <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"My World","summary":"A forgotten land on the edge of time","body":"Long ago..."}'
+
+
+# 3) List stories
+curl -H "Authorization: Token <TOKEN>" \
+  http://127.0.0.1:8000/api/stories/
+
+
+# 4) Analyze a story with AI (POC)
+curl -X POST http://127.0.0.1:8000/api/stories/1/analyze/ \
+  -H "Authorization: Token <TOKEN>"
+
+
+# 5) Retrieve the story again (story data is unchanged;
+# AI analysis is returned on-demand)
+curl -H "Authorization: Token <TOKEN>" \
+  http://127.0.0.1:8000/api/stories/1/
+
+```
+
+By default, the AI endpoint runs in mock mode unless OPENAI_API_KEY is set and LORESMITH_AI_ENABLED=true.
+Mock mode returns deterministic placeholder output for safe development.
 
 ---
 
@@ -95,7 +173,7 @@ loresmith-api/
 ├── app/
 │   ├── app/                # Django project settings and root URLs
 │   ├── core/               # Core domain logic (stories, world entities, AI, permissions)
-|   ├── tests/              # Core app tests
+│   ├── tests/              # Core app tests
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── permissions.py
@@ -109,7 +187,7 @@ loresmith-api/
 │   │       └── item.py
 │   │
 │   └── user/               # User API (registration, auth, user profile)
-|       ├── tests/          # User app tests
+│       ├── tests/          # User app tests
 │       ├── serializers.py
 │       ├── views.py
 │       └── urls.py
@@ -121,7 +199,7 @@ loresmith-api/
 
 ---
 
-## 🔧 Installation
+## 🔧 Installation (Local / Venv)
 
 ### 1️⃣ Clone the repository
 
@@ -161,6 +239,7 @@ OPENAI_API_KEY=changeme
 LORESMITH_AI_MODEL=gpt-4.1-mini
 LORESMITH_MAX_OUTPUT_TOKENS=256
 LORESMITH_MAX_INPUT_CHARS=8000
+LORESMITH_DAILY_TOKEN_BUDGET=50000
 LORESMITH_AI_ENABLED=true
 ```
 
@@ -191,12 +270,14 @@ pytest
 
 Test coverage includes:
 
-- Story model + CRUD
+- Story, Character, Location, Faction and Item models + CRUD
 - Ownership + permissions
 - AI endpoint behavior (mocked AI)
 - Slug generation
 - Related entities CRUD
 - User API behavior (registration, auth, profile)
+
+Linting is enforced via `flake8` (CI-ready).
 
 ---
 
@@ -216,49 +297,7 @@ Test coverage includes:
 | DELETE | `/stories/{id}/` | Delete story |
 | POST | `/stories/{id}/analyze/` | **AI-powered story analysis** |
 
----
-
-### **Characters**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/characters/` | List characters |
-| POST | `/characters/` | Create character |
-| GET | `/characters/{id}/` | Retrieve character |
-| PATCH | `/characters/{id}/` | Update character |
-| DELETE | `/characters/{id}/` | Delete character |
-
----
-
-### **Locations**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/locations/` | List locations |
-| POST | `/locations/` | Create location |
-| GET | `/locations/{id}/` | Retrieve location |
-| PATCH | `/locations/{id}/` | Update location |
-| DELETE | `/locations/{id}/` | Delete location |
-
----
-
-### **Factions**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/factions/` | List factions |
-| POST | `/factions/` | Create faction |
-| GET | `/factions/{id}/` | Retrieve faction |
-| PATCH | `/factions/{id}/` | Update faction |
-| DELETE | `/factions/{id}/` | Delete faction |
-
----
-
-### **Items**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/items/` | List items |
-| POST | `/items/` | Create item |
-| GET | `/items/{id}/` | Retrieve item |
-| PATCH | `/items/{id}/` | Update item |
-| DELETE | `/items/{id}/` | Delete item |
+Full endpoint list is available in Swagger.
 
 ---
 
@@ -308,12 +347,13 @@ The system will:
 ## 📝 License
 © 2025 Benjamin Kagansky
 All Rights Reserved.
-This codebase is proprietary and may not be copied, modified, or distributed without explicit permission.
 
+This codebase is proprietary. Unauthorized copying, modification,
+distribution, or use is strictly prohibited without explicit permission.
 
 ---
 
 ## 🙌 Credits
 
 Developed by **Benjamin Kagansky**
-AI integration & backend architecture built with assistance from ChatGPT.
+Backend architecture and AI integration developed with AI-assisted tools.
