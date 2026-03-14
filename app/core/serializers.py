@@ -47,6 +47,58 @@ class StorySerializer(serializers.ModelSerializer):
             "created_by"
         )
 
+    def validate(self, attrs):
+        kind = attrs.get("kind", getattr(self.instance, "kind", None))
+        parent = attrs.get("parent", getattr(self.instance, "parent", None))
+
+        # story / standalone must be root
+        if kind in {
+            models.Story.Kind.STORY,
+            models.Story.Kind.STANDALONE,
+        } and parent is not None:
+            raise serializers.ValidationError(
+                {"parent": f"{kind} entries cannot have a parent."}
+            )
+
+        # part must have a parent
+        if kind == models.Story.Kind.PART and parent is None:
+            raise serializers.ValidationError(
+                {"parent": "Part entries must have a parent."}
+            )
+
+        # part can only belong to story or part
+        if kind == models.Story.Kind.PART and parent is not None:
+            if parent.kind not in {
+                models.Story.Kind.STORY,
+                models.Story.Kind.PART,
+            }:
+                raise serializers.ValidationError(
+                    {
+                        "parent": (
+                            "Part entries can only belong to a story "
+                            "or another part."
+                        )
+                    }
+                )
+
+        # prevent self-parenting on update
+        if self.instance and parent and self.instance.pk == parent.pk:
+            raise serializers.ValidationError(
+                {"parent": "A story cannot be its own parent."}
+            )
+
+        # standalone cannot have children
+        if (
+            self.instance
+            and kind == models.Story.Kind.STANDALONE
+            and self.instance.sub_stories.exists()
+        ):
+            raise serializers.ValidationError(
+                {"kind": "Standalone entries cannot have child stories."}
+            )
+
+        return attrs
+
 
 class StoryAIAnalysisMetaSerializer(serializers.Serializer):
     ai_mode = serializers.CharField()

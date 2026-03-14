@@ -503,7 +503,7 @@ class StorySerializerTests(TestCase):
             title="Archon War",
             summary="The great war of the Archons.",
             body="Long ago...",
-            kind=models.Story.Kind.ARC,
+            kind=models.Story.Kind.STORY,
             story_type=models.Story.StoryType.MYTH,
             visibility=models.Story.Visibility.PUBLIC,
             in_world_date="Before the Archon War",
@@ -576,6 +576,7 @@ class StorySerializerTests(TestCase):
             title="Rex Lapis' Contract",
             summary="The long-standing contract of Liyue.",
             body="Once upon a time...",
+            kind=models.Story.Kind.STORY,
         )
 
         payload = {
@@ -655,3 +656,86 @@ class StorySerializerTests(TestCase):
         self.assertEqual(list(story.items.all()), [])
         self.assertIsNotNone(story.slug)
         self.assertTrue(story.slug)
+
+    def test_part_requires_parent(self):
+        """PART stories must have a parent."""
+        payload = {
+            "title": "Lonely Chapter",
+            "kind": models.Story.Kind.PART,
+        }
+
+        serializer = serializers.StorySerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("parent", serializer.errors)
+
+    def test_story_cannot_have_parent(self):
+        """STORY entries must not have a parent."""
+        parent = models.Story.objects.create(title="Main Story")
+
+        payload = {
+            "title": "Another Root Story",
+            "kind": models.Story.Kind.STORY,
+            "parent": parent.id,
+        }
+
+        serializer = serializers.StorySerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("parent", serializer.errors)
+
+    def test_standalone_cannot_have_parent(self):
+        """Standalone stories cannot have a parent."""
+        parent = models.Story.objects.create(title="Main Story")
+
+        payload = {
+            "title": "Random Lore Entry",
+            "kind": models.Story.Kind.STANDALONE,
+            "parent": parent.id,
+        }
+
+        serializer = serializers.StorySerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("parent", serializer.errors)
+
+    def test_part_cannot_belong_to_standalone(self):
+        """Parts cannot belong to standalone stories."""
+        parent = models.Story.objects.create(
+            title="Standalone Entry",
+            kind=models.Story.Kind.STANDALONE,
+        )
+
+        payload = {
+            "title": "Invalid Chapter",
+            "kind": models.Story.Kind.PART,
+            "parent": parent.id,
+        }
+
+        serializer = serializers.StorySerializer(data=payload)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("parent", serializer.errors)
+
+    def test_part_under_story_and_part_is_valid(self):
+        """PART can belong to STORY and also to another PART."""
+        story = models.Story.objects.create(
+            title="Main Story",
+            kind=models.Story.Kind.STORY,
+        )
+
+        chapter = models.Story.objects.create(
+            title="Chapter 1",
+            kind=models.Story.Kind.PART,
+            parent=story,
+        )
+
+        payload = {
+            "title": "Scene 1",
+            "kind": models.Story.Kind.PART,
+            "parent": chapter.id,
+        }
+
+        serializer = serializers.StorySerializer(data=payload)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)

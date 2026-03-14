@@ -8,7 +8,7 @@ from rest_framework.test import APITestCase
 from rest_framework import status
 
 from core import models
-from core.ai_client import DailyBudgetExceeded, AiServiceError
+from core.services.ai_client import DailyBudgetExceeded, AiServiceError
 
 ANALYZE_URL_NAME = "story-analyze"
 
@@ -92,7 +92,7 @@ class StoryAIApiTests(APITestCase):
         LORESMITH_AI_ENABLED=False,
         OPENAI_API_KEY="",  # simulate "no key" as well
     )
-    @mock.patch("core.ai_client.LoreAIService._mock_response")
+    @mock.patch("core.services.ai_client.LoreAIService._mock_response")
     def test_ai_uses_mock_mode_when_disabled(self, mock_mock_response):
         """AI should fall back to mock mode when disabled or no API key."""
         story = create_story(user=self.user)
@@ -122,10 +122,10 @@ class StoryAIApiTests(APITestCase):
         mock_mock_response.assert_called_once()
 
     def test_analyze_returns_400_when_nothing_to_analyze(self):
-        """Return 400 if story has no title/summary/body."""
+        """Return 400 if story has no summary/body."""
         story = create_story(
             user=self.user,
-            title="",
+            title="Valid Title",
             summary="  ",  # whitespace only
             body="",
         )

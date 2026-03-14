@@ -4,6 +4,7 @@ Core models for LoreSmith application.
 from django.db import models
 from django.conf import settings
 from django.utils.text import slugify
+from django.core.exceptions import ValidationError
 
 
 class Location(models.Model):
@@ -201,10 +202,14 @@ class Story(models.Model):
     summary = models.TextField(blank=True)
     body = models.TextField(blank=True)
 
+    # Hierarchy rules:
+    # - story: root entry that can contain parts
+    # - standalone: root entry that cannot contain children
+    # - part: nested section under story or part
     class Kind(models.TextChoices):
-        STANDALONE = "standalone", "Standalone Entry"
-        ARC = "arc", "Story / Quest Arc"
-        PART = "part", "Part / Chapter / Scene"
+        STORY = "story", "Story"
+        STANDALONE = "standalone", "Standalone"
+        PART = "part", "Part"
 
     kind = models.CharField(
         max_length=20,
@@ -288,7 +293,51 @@ class Story(models.Model):
     def __str__(self):
         return self.title
 
+    def clean(self):
+        # story and standalone must be root
+        if (
+            self.kind in {self.Kind.STORY, self.Kind.STANDALONE}
+            and self.parent is not None
+        ):
+            raise ValidationError({
+                "parent": f"{self.kind} entries cannot have a parent."
+            })
+
+        # part must have a parent
+        if self.kind == self.Kind.PART and self.parent is None:
+            raise ValidationError({
+                "parent": "Part entries must have a parent."
+            })
+
+        # part can only be under story or part
+        if (
+            self.kind == self.Kind.PART
+            and self.parent is not None
+        ):
+            if self.parent.kind not in {self.Kind.STORY, self.Kind.PART}:
+                raise ValidationError({
+                    "parent":
+                    "Part entries can only belong to a story or another part."
+                })
+
+        # prevent self-parenting
+        if self.parent_id is not None and self.parent_id == self.id:
+            raise ValidationError({
+                "parent": "A story cannot be its own parent."
+            })
+
+        # standalone cannot have children
+        if (
+            self.kind == self.Kind.STANDALONE
+            and self.pk
+            and self.sub_stories.exists()
+        ):
+            raise ValidationError({
+                "kind": "Standalone entries cannot have child stories."
+            })
+
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.title)
+        self.full_clean()
         super().save(*args, **kwargs)

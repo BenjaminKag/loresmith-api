@@ -4,7 +4,7 @@ Tests for Story model.
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.utils.text import slugify
-from django.db import IntegrityError
+from django.core.exceptions import ValidationError
 
 from core import models
 
@@ -71,24 +71,24 @@ class StoryModelTests(TestCase):
 
     def test_parent_and_sub_stories_relationship(self):
         """Test that parent and sub_stories relationship works correctly."""
-        arc = create_story(
-            title="Arc: The Fall of Kharios",
-            kind=models.Story.Kind.ARC,
+        story = create_story(
+            title="The Fall of Kharios",
+            kind=models.Story.Kind.STORY,
         )
         part1 = create_story(
             title="Part 1: The Betrayal",
             kind=models.Story.Kind.PART,
-            parent=arc,
+            parent=story,
             order=1,
         )
         part2 = create_story(
             title="Part 2: Fire at Dawn",
             kind=models.Story.Kind.PART,
-            parent=arc,
+            parent=story,
             order=2,
         )
 
-        sub_stories = list(arc.sub_stories.all())
+        sub_stories = list(story.sub_stories.all())
 
         self.assertIn(part1, sub_stories)
         self.assertIn(part2, sub_stories)
@@ -154,63 +154,135 @@ class StoryModelTests(TestCase):
         follow Meta.ordering: kind, parent__id, order, title.
         For a single parent, the important part is 'order' then 'title'.
         """
-        arc = create_story(
-            title="Arc: The Voyage",
-            kind=models.Story.Kind.ARC,
+        story = create_story(
+            title="The Fall of Kharios",
+            kind=models.Story.Kind.STORY,
         )
         part2 = create_story(
             title="Part B",
             kind=models.Story.Kind.PART,
-            parent=arc,
+            parent=story,
             order=2,
         )
         part1 = create_story(
             title="Part A",
             kind=models.Story.Kind.PART,
-            parent=arc,
+            parent=story,
             order=1,
         )
 
-        ordered_parts = list(arc.sub_stories.all())
+        ordered_parts = list(story.sub_stories.all())
         self.assertEqual(ordered_parts, [part1, part2])
 
-    def test_meta_ordering_across_kinds(self):
-        """
-        Stories should follow Meta.ordering across different kinds:
-        kind, parent__id, order, title.
-        With our Kind values, that means: ARC -> PART -> STANDALONE.
-        """
-        # Create an arc (no parent)
-        arc = create_story(
-            title="Arc Story",
-            kind=models.Story.Kind.ARC,
-            order=2,
-        )
-
-        # Create a part under that arc
-        part = create_story(
-            title="Part Story",
-            kind=models.Story.Kind.PART,
-            parent=arc,
-            order=1,
-        )
-
-        # Create a standalone story
-        standalone = create_story(
-            title="Standalone Story",
-            kind=models.Story.Kind.STANDALONE,
-            order=1,
-        )
-
-        stories = list(models.Story.objects.all())
-        self.assertEqual(stories, [arc, part, standalone])
-
-    def test_creating_two_stories_with_same_title_raises_integrity_error(self):
+    def test_two_stories_with_same_title_raises_validation_error(self):
         """
         Because slug is unique and auto-generated from title,
-        creating two stories with the same title should raise IntegrityError.
+        creating two stories with the same title should raise ValidationError.
         """
         create_story(title="Duplicate Title")
 
-        with self.assertRaises(IntegrityError):
+        with self.assertRaises(ValidationError):
             create_story(title="Duplicate Title")
+
+    def test_part_requires_parent(self):
+        """
+        Part stories must have a parent.
+        """
+        with self.assertRaises(ValidationError):
+            create_story(
+                title="Lonely Part",
+                kind=models.Story.Kind.PART,
+                parent=None,
+            )
+
+    def test_story_cannot_have_parent(self):
+        """
+        Root story entries cannot have a parent.
+        """
+        parent = create_story(
+            title="Parent Story",
+            kind=models.Story.Kind.STORY
+        )
+
+        with self.assertRaises(ValidationError):
+            create_story(
+                title="Invalid Nested Story",
+                kind=models.Story.Kind.STORY,
+                parent=parent,
+            )
+
+    def test_standalone_cannot_have_parent(self):
+        """
+        Standalone entries must remain root entries.
+        """
+        parent = create_story(
+            title="Parent Story",
+            kind=models.Story.Kind.STORY
+        )
+
+        with self.assertRaises(ValidationError):
+            create_story(
+                title="Invalid Standalone Child",
+                kind=models.Story.Kind.STANDALONE,
+                parent=parent,
+            )
+
+    def test_part_can_be_nested_under_part(self):
+        """
+        Part entries can be nested under another part.
+        """
+        story = create_story(title="Root Story", kind=models.Story.Kind.STORY)
+        part = create_story(
+            title="Part 1",
+            kind=models.Story.Kind.PART,
+            parent=story,
+        )
+
+        sub_part = create_story(
+            title="Part 1.1",
+            kind=models.Story.Kind.PART,
+            parent=part,
+        )
+
+        self.assertEqual(sub_part.parent, part)
+
+    def test_part_cannot_belong_to_standalone(self):
+        """
+        Part entries cannot be children of standalone entries.
+        """
+        standalone = create_story(
+            title="Standalone Story",
+            kind=models.Story.Kind.STANDALONE,
+        )
+
+        with self.assertRaises(ValidationError):
+            create_story(
+                title="Invalid Part",
+                kind=models.Story.Kind.PART,
+                parent=standalone,
+            )
+
+    def test_story_cannot_be_its_own_parent(self):
+        """A story cannot be its own parent."""
+        story = create_story(
+            title="Self Parent Story",
+            kind=models.Story.Kind.STORY
+        )
+        story.parent = story
+
+        with self.assertRaises(ValidationError):
+            story.save()
+
+    def test_standalone_cannot_have_existing_children(self):
+        """A story with children cannot be changed into standalone."""
+        story = create_story(title="Root Story", kind=models.Story.Kind.STORY)
+        create_story(
+            title="Part 1",
+            kind=models.Story.Kind.PART,
+            parent=story,
+        )
+
+        story.kind = models.Story.Kind.STANDALONE
+
+        with self.assertRaises(ValidationError):
+            story.save()

@@ -61,6 +61,7 @@ class StoryApiTests(APITestCase):
             title="Rex Lapis' Contract",
             summary="The long-standing contract of Liyue.",
             body="Once upon a time...",
+            kind=models.Story.Kind.STORY,
         )
 
         payload = {
@@ -210,3 +211,65 @@ class StoryApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         exists = models.Story.objects.filter(id=story.id).exists()
         self.assertTrue(exists)
+
+    def test_create_part_without_parent_returns_400(self):
+        """API should reject PART stories without a parent."""
+        payload = {
+            "title": "Lonely Part",
+            "kind": models.Story.Kind.PART,
+        }
+
+        res = self.client.post(STORIES_URL, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("parent", res.data)
+
+    def test_create_story_with_parent_returns_400(self):
+        """API should reject STORY entries that have a parent."""
+        parent = models.Story.objects.create(
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+
+        payload = {
+            "title": "Invalid Nested Story",
+            "kind": models.Story.Kind.STORY,
+            "parent": parent.id,
+        }
+
+        res = self.client.post(STORIES_URL, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("parent", res.data)
+
+    def test_create_part_under_standalone_returns_400(self):
+        """API should reject PART entries under standalone stories."""
+        standalone = models.Story.objects.create(
+            title="Standalone Story",
+            kind=models.Story.Kind.STANDALONE,
+        )
+
+        payload = {
+            "title": "Invalid Child",
+            "kind": models.Story.Kind.PART,
+            "parent": standalone.id,
+        }
+
+        res = self.client.post(STORIES_URL, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("parent", res.data)
+
+    def test_create_standalone_story_returns_201(self):
+        """API should allow creating a standalone story."""
+        payload = {
+            "title": "One-Shot Lore Entry",
+            "kind": models.Story.Kind.STANDALONE,
+        }
+
+        res = self.client.post(STORIES_URL, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        story = models.Story.objects.get(id=res.data["id"])
+        self.assertEqual(story.kind, models.Story.Kind.STANDALONE)
+        self.assertIsNone(story.parent)

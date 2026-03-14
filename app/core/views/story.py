@@ -14,7 +14,7 @@ from core.permissions import IsOwnerOrReadOnly
 
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
-from core.ai_client import (
+from core.services.ai_client import (
     LoreAIService,
     AiServiceError,
     DailyBudgetExceeded
@@ -73,21 +73,23 @@ class StoryViewSet(viewsets.ModelViewSet):
         story = self.get_object()
 
         # Build the text to send to AI
-        parts = [
-            story.title or "",
+        data_parts = [
             story.summary or "",
             story.body or "",
         ]
-        text = "\n\n".join(p for p in parts if p and p.strip())
 
-        if not text:
+        data = "\n\n".join(p.strip() for p in data_parts if p and p.strip())
+
+        if not data:
             return Response(
                 {
                     "detail": "Nothing to analyze "
-                    "(title/summary/body are empty)."
+                    "(summary/body are empty)."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        text = f"{story.title.strip()}\n\n{data}"
 
         service = LoreAIService()
 
