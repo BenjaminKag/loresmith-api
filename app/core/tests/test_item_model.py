@@ -48,16 +48,16 @@ class ItemModelTests(TestCase):
         user = create_user()
         char1 = models.Character.objects.create(
             name="Xiao",
-            created_by=user,
+            owner=user,
         )
         char2 = models.Character.objects.create(
             name="Arlecchino",
-            created_by=user,
+            owner=user,
         )
 
         item = models.Item.objects.create(
             name="Jade Winged Spear",
-            created_by=user,
+            owner=user,
         )
 
         char1.equipment.add(item)
@@ -68,16 +68,16 @@ class ItemModelTests(TestCase):
         self.assertIn(item, char1.equipment.all())
         self.assertIn(item, char2.equipment.all())
 
-    def test_item_created_by_user(self):
-        """Test that item has created_by field set correctly."""
+    def test_item_owner_user(self):
+        """Test that item has owner field set correctly."""
         user = create_user()
         item = models.Item.objects.create(
             name="Anemo Vision",
-            created_by=user,
+            owner=user,
         )
 
-        self.assertEqual(item.created_by, user)
-        self.assertIn(item, user.items.all())
+        self.assertEqual(item.owner, user)
+        self.assertIn(item, user.owned_items.all())
 
     def test_item_tags_field(self):
         """tags stores a list and defaults to empty list."""

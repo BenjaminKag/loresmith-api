@@ -42,26 +42,31 @@ class StoryApiTests(APITestCase):
             name="Liyue Harbor",
             description="A bustling harbor city.",
             location_type="city",
+            owner=self.user,
         )
         faction = models.Faction.objects.create(
             name="Liyue Qixing",
             description="Leaders of Liyue.",
             faction_type="government",
+            owner=self.user,
         )
         item = models.Item.objects.create(
             name="Primordial Jade Winged-Spear",
             item_type="weapon",
             rarity="5-star",
+            owner=self.user,
         )
         character = models.Character.objects.create(
             name="Xiao",
             description="A vigilant yaksha.",
+            owner=self.user,
         )
         parent_story = models.Story.objects.create(
             title="Rex Lapis' Contract",
             summary="The long-standing contract of Liyue.",
             body="Once upon a time...",
             kind=models.Story.Kind.STORY,
+            owner=self.user,
         )
 
         payload = {
@@ -97,7 +102,7 @@ class StoryApiTests(APITestCase):
         self.assertEqual(story.in_world_date, "Year 1107 AE")
         self.assertEqual(story.parent, parent_story)
         self.assertEqual(story.order, 3)
-        self.assertEqual(story.created_by, self.user)
+        self.assertEqual(story.owner, self.user)
 
         self.assertEqual(list(story.characters.all()), [character])
         self.assertEqual(list(story.locations.all()), [location])
@@ -108,9 +113,9 @@ class StoryApiTests(APITestCase):
         self.assertTrue(story.slug)
 
     def test_list_stories(self):
-        """GET /api/stories/ should return a list of stories."""
-        models.Story.objects.create(title="Story A")
-        models.Story.objects.create(title="Story B")
+        """GET /api/stories/ should return a list of the user's stories."""
+        models.Story.objects.create(title="Story A", owner=self.user)
+        models.Story.objects.create(title="Story B", owner=self.user)
 
         res = self.client.get(STORIES_URL)
 
@@ -128,6 +133,7 @@ class StoryApiTests(APITestCase):
             summary="The great war of the Archons.",
             body="Long ago...",
             in_world_date="Before the Archon War",
+            owner=self.user,
         )
         url = detail_url(story.id)
 
@@ -152,7 +158,7 @@ class StoryApiTests(APITestCase):
         """Owner can update their own story."""
         story = models.Story.objects.create(
             title="Old Title",
-            created_by=self.user,
+            owner=self.user,
         )
         url = detail_url(story.id)
 
@@ -170,13 +176,13 @@ class StoryApiTests(APITestCase):
         )
         story = models.Story.objects.create(
             title="Secret Story",
-            created_by=other_user,
+            owner=other_user,
         )
         url = detail_url(story.id)
 
         res = self.client.patch(url, {"title": "Hacked!"}, format="json")
 
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         story.refresh_from_db()
         self.assertEqual(story.title, "Secret Story")
 
@@ -184,7 +190,7 @@ class StoryApiTests(APITestCase):
         """Owner can delete their own story."""
         story = models.Story.objects.create(
             title="Temporary Story",
-            created_by=self.user,
+            owner=self.user,
         )
         url = detail_url(story.id)
 
@@ -202,13 +208,13 @@ class StoryApiTests(APITestCase):
         )
         story = models.Story.objects.create(
             title="Restricted Story",
-            created_by=other_user,
+            owner=other_user,
         )
         url = detail_url(story.id)
 
         res = self.client.delete(url)
 
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         exists = models.Story.objects.filter(id=story.id).exists()
         self.assertTrue(exists)
 
@@ -273,3 +279,86 @@ class StoryApiTests(APITestCase):
         story = models.Story.objects.get(id=res.data["id"])
         self.assertEqual(story.kind, models.Story.Kind.STANDALONE)
         self.assertIsNone(story.parent)
+
+    def test_user_can_view_others_public_story(self):
+        """Authenticated users can retrieve another user's public story."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        story = models.Story.objects.create(
+            title="Public Story",
+            summary="Visible to everyone.",
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=other_user,
+        )
+        url = detail_url(story.id)
+
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["title"], "Public Story")
+
+    def test_anonymous_user_can_view_public_story(self):
+        """Anonymous users can retrieve public stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        story = models.Story.objects.create(
+            title="Public Story",
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=other_user,
+        )
+        url = detail_url(story.id)
+
+        self.client.force_authenticate(None)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["title"], "Public Story")
+
+    def test_anonymous_user_cannot_view_private_story(self):
+        """Anonymous users cannot retrieve private stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        story = models.Story.objects.create(
+            title="Private Story",
+            visibility=models.Story.Visibility.PRIVATE,
+            owner=other_user,
+        )
+        url = detail_url(story.id)
+
+        self.client.force_authenticate(None)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_includes_public_stories_from_other_users(self):
+        """Authenticated users can see their own stories
+            and others' public stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        models.Story.objects.create(title="My Story", owner=self.user)
+        models.Story.objects.create(
+            title="Public Story",
+            owner=other_user,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        models.Story.objects.create(
+            title="Private Story",
+            owner=other_user,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+
+        res = self.client.get(STORIES_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(
+            [s["title"] for s in res.data],
+            ["My Story", "Public Story"],
+        )

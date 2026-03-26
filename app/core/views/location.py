@@ -3,6 +3,8 @@ ViewSet for Location objects.
 """
 from rest_framework import viewsets, permissions
 
+from django.db.models import Q
+
 from core import models, serializers
 from core.permissions import IsOwnerOrReadOnly
 
@@ -13,10 +15,6 @@ from drf_spectacular.utils import extend_schema
 class LocationViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Location objects via the API."""
 
-    queryset = models.Location.objects.all().select_related(
-        "parent",
-        "created_by"
-    )
     serializer_class = serializers.LocationSerializer
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
@@ -24,5 +22,23 @@ class LocationViewSet(viewsets.ModelViewSet):
     ]
 
     def perform_create(self, serializer):
-        """Set the created_by user on creation."""
-        serializer.save(created_by=self.request.user)
+        """Set the owner user on creation."""
+        serializer.save(owner=self.request.user)
+
+    def get_queryset(self):
+        base_queryset = models.Location.objects.select_related(
+            "parent",
+            "owner"
+        )
+
+        user = self.request.user
+
+        if user.is_authenticated:
+            return base_queryset.filter(
+                Q(owner=user) |
+                Q(stories__visibility=models.Story.Visibility.PUBLIC)
+            ).distinct()
+
+        return base_queryset.filter(
+            stories__visibility=models.Story.Visibility.PUBLIC
+        ).distinct()

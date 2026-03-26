@@ -9,6 +9,8 @@ from rest_framework import (
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from django.db.models import Q
+
 from core import models, serializers
 from core.permissions import IsOwnerOrReadOnly
 
@@ -26,17 +28,6 @@ from core.throttling import AIUserThrottle
 class StoryViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Story objects via the API."""
 
-    queryset = (
-        models.Story.objects
-        .all()
-        .select_related("parent", "created_by")
-        .prefetch_related(
-            "characters",
-            "locations",
-            "factions",
-            "items"
-        )
-    )
     serializer_class = serializers.StorySerializer
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
@@ -153,5 +144,29 @@ class StoryViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
-        """Set the created_by user on creation."""
-        serializer.save(created_by=self.request.user)
+        """Set the owner user on creation."""
+        serializer.save(owner=self.request.user)
+
+    def get_queryset(self):
+        base_queryset = (
+            models.Story.objects
+            .select_related("parent", "owner")
+            .prefetch_related(
+                "characters",
+                "locations",
+                "factions",
+                "items"
+            )
+        )
+
+        user = self.request.user
+
+        if user.is_authenticated:
+            return base_queryset.filter(
+                Q(owner=user) |
+                Q(visibility=models.Story.Visibility.PUBLIC)
+            ).distinct()
+
+        return base_queryset.filter(
+            visibility=models.Story.Visibility.PUBLIC
+        ).distinct()

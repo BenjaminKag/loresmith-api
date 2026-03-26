@@ -62,12 +62,12 @@ class StoryModelTests(TestCase):
         self.assertEqual(story.visibility, models.Story.Visibility.PRIVATE)
         self.assertEqual(story.order, 0)
 
-    def test_can_set_created_by(self):
-        """created_by can be set and retrieved."""
+    def test_can_set_owner(self):
+        """owner can be set and retrieved."""
         user = create_user()
-        story = create_story(created_by=user)
+        story = create_story(owner=user)
 
-        self.assertEqual(story.created_by, user)
+        self.assertEqual(story.owner, user)
 
     def test_parent_and_sub_stories_relationship(self):
         """Test that parent and sub_stories relationship works correctly."""
@@ -286,3 +286,101 @@ class StoryModelTests(TestCase):
 
         with self.assertRaises(ValidationError):
             story.save()
+
+    def test_public_child_with_private_parent_raises_error(self):
+        user = create_user()
+
+        parent = create_story(
+            owner=user,
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+
+        child = models.Story(
+            title="Child Story",
+            kind=models.Story.Kind.PART,
+            parent=parent,
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=user,
+        )
+
+        with self.assertRaises(ValidationError):
+            child.full_clean()
+
+    def test_public_child_with_draft_parent_raises_error(self):
+        user = create_user()
+
+        parent = create_story(
+            owner=user,
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.DRAFT,
+        )
+
+        child = models.Story(
+            title="Child Story",
+            kind=models.Story.Kind.PART,
+            parent=parent,
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=user,
+        )
+
+        with self.assertRaises(ValidationError):
+            child.full_clean()
+
+    def test_public_child_with_archived_parent_raises_error(self):
+        user = create_user()
+
+        parent = create_story(
+            owner=user,
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.ARCHIVED,
+        )
+
+        child = models.Story(
+            title="Child Story",
+            kind=models.Story.Kind.PART,
+            parent=parent,
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=user,
+        )
+
+        with self.assertRaises(ValidationError):
+            child.full_clean()
+
+    def test_public_child_with_public_parent_is_valid(self):
+        user = create_user()
+
+        parent = create_story(
+            owner=user,
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+
+        child = models.Story(
+            title="Child Story",
+            kind=models.Story.Kind.PART,
+            parent=parent,
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=user,
+        )
+
+        child.full_clean()  # Should not raise
+
+    def test_private_child_with_public_parent_is_valid(self):
+        user = create_user()
+
+        parent = create_story(
+            owner=user,
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+
+        child = models.Story(
+            title="Child Story",
+            kind=models.Story.Kind.PART,
+            parent=parent,
+            visibility=models.Story.Visibility.PRIVATE,
+            owner=user,
+        )
+
+        child.full_clean()  # Should not raise

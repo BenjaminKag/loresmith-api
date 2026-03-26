@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
                 ('extra_data', models.JSONField(blank=True, default=dict)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='items', to=settings.AUTH_USER_MODEL)),
+                ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='items', to=settings.AUTH_USER_MODEL)),
             ],
             options={
                 'ordering': ['name'],
@@ -43,7 +43,7 @@ class Migration(migrations.Migration):
                 ('extra_data', models.JSONField(blank=True, default=dict)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='locations', to=settings.AUTH_USER_MODEL)),
+                ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='locations', to=settings.AUTH_USER_MODEL)),
                 ('parent', models.ForeignKey(blank=True, help_text='If set, this location is inside another location.', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sub_locations', to='core.location')),
             ],
             options={
@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
                 ('extra_data', models.JSONField(blank=True, default=dict)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='factions', to=settings.AUTH_USER_MODEL)),
+                ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='factions', to=settings.AUTH_USER_MODEL)),
                 ('location', models.ForeignKey(blank=True, help_text='Primary location associated with this faction.', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='factions', to='core.location')),
             ],
             options={
@@ -83,7 +83,7 @@ class Migration(migrations.Migration):
                 ('extra_data', models.JSONField(blank=True, default=dict)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='characters', to=settings.AUTH_USER_MODEL)),
+                ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='characters', to=settings.AUTH_USER_MODEL)),
                 ('affiliations', models.ManyToManyField(blank=True, related_name='members', to='core.faction')),
                 ('equipment', models.ManyToManyField(blank=True, related_name='holders', to='core.item')),
                 ('location', models.ForeignKey(blank=True, help_text='Primary location associated with this character.', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='characters', to='core.location')),

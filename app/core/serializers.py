@@ -1,6 +1,7 @@
 """
 Serializers for core models.
 """
+
 from rest_framework import serializers
 from . import models
 
@@ -10,7 +11,13 @@ class LocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Location
         fields = "__all__"
-        read_only_fields = ("id", "created_at", "updated_at", "created_by")
+        read_only_fields = ("id", "created_at", "updated_at", "owner")
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data["owner"] = request.user
+        return super().create(validated_data)
 
 
 class FactionSerializer(serializers.ModelSerializer):
@@ -18,21 +25,70 @@ class FactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Faction
         fields = "__all__"
-        read_only_fields = ("id", "created_at", "updated_at", "created_by")
+        read_only_fields = ("id", "created_at", "updated_at", "owner")
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data["owner"] = request.user
+        return super().create(validated_data)
 
 
 class ItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Item
         fields = "__all__"
-        read_only_fields = ("id", "created_at", "updated_at", "created_by")
+        read_only_fields = ("id", "created_at", "updated_at", "owner")
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data["owner"] = request.user
+        return super().create(validated_data)
 
 
 class CharacterSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Character
         fields = "__all__"
-        read_only_fields = ("id", "created_at", "updated_at", "created_by")
+        read_only_fields = ("id", "created_at", "updated_at", "owner")
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data["owner"] = request.user
+        return super().create(validated_data)
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if user and user.is_authenticated:
+            location = attrs.get("location")
+            affiliations = attrs.get("affiliations", [])
+            equipment = attrs.get("equipment", [])
+
+            if location and location.owner != user:
+                raise serializers.ValidationError({
+                    "location":
+                    "You can only assign your own locations."
+                })
+
+            for faction in affiliations:
+                if faction.owner != user:
+                    raise serializers.ValidationError({
+                        "affiliations":
+                        "You can only assign your own factions."
+                    })
+
+            for item in equipment:
+                if item.owner != user:
+                    raise serializers.ValidationError({
+                        "equipment":
+                        "You can only assign your own items."
+                    })
+
+        return attrs
 
 
 class StorySerializer(serializers.ModelSerializer):
@@ -44,8 +100,14 @@ class StorySerializer(serializers.ModelSerializer):
             "slug",
             "created_at",
             "updated_at",
-            "created_by"
+            "owner"
         )
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data["owner"] = request.user
+        return super().create(validated_data)
 
     def validate(self, attrs):
         kind = attrs.get("kind", getattr(self.instance, "kind", None))
@@ -96,6 +158,43 @@ class StorySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"kind": "Standalone entries cannot have child stories."}
             )
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if user and user.is_authenticated:
+            characters = attrs.get("characters", [])
+            locations = attrs.get("locations", [])
+            factions = attrs.get("factions", [])
+            items = attrs.get("items", [])
+
+            for character in characters:
+                if character.owner != user:
+                    raise serializers.ValidationError({
+                        "characters":
+                        "You can only assign your own characters."
+                    })
+
+            for location in locations:
+                if location.owner != user:
+                    raise serializers.ValidationError({
+                        "locations":
+                        "You can only assign your own locations."
+                    })
+
+            for faction in factions:
+                if faction.owner != user:
+                    raise serializers.ValidationError({
+                        "factions":
+                        "You can only assign your own factions."
+                    })
+
+            for item in items:
+                if item.owner != user:
+                    raise serializers.ValidationError({
+                        "items":
+                        "You can only assign your own items."
+                    })
 
         return attrs
 

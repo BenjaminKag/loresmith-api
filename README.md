@@ -55,7 +55,7 @@ These entities can reference each other, forming a structured and interconnected
 ### **Stories**
 - Hierarchical nesting (`parent` + `order`)
 - Rich text fields (title, summary, body)
-- Ownership control (`created_by`)
+- Ownership control (`owner`)
 - Visibility system (`private`, `public`, `draft`, `archived`)
 - Automatic slug generation
 

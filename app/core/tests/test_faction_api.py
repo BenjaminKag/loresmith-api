@@ -48,7 +48,7 @@ class FactionApiTests(APITestCase):
         self.assertEqual(faction.name, payload["name"])
         self.assertEqual(faction.description, payload["description"])
         self.assertEqual(faction.faction_type, payload["faction_type"])
-        self.assertEqual(faction.created_by, self.user)
+        self.assertEqual(faction.owner, self.user)
 
     def test_create_faction_with_location(self):
         """Test creating a faction that is linked to a location."""
@@ -72,8 +72,8 @@ class FactionApiTests(APITestCase):
 
     def test_list_factions(self):
         """GET /api/factions/ should return a list of factions."""
-        models.Faction.objects.create(name="Adepti")
-        models.Faction.objects.create(name="Fatui")
+        models.Faction.objects.create(name="Adepti", owner=self.user)
+        models.Faction.objects.create(name="Fatui", owner=self.user)
 
         res = self.client.get(FACTIONS_URL)
 
@@ -90,6 +90,7 @@ class FactionApiTests(APITestCase):
             name="Adepti",
             description="Protectors of Liyue.",
             faction_type="Illuminated beasts and gods",
+            owner=self.user,
         )
         url = detail_url(faction.id)
 
@@ -113,7 +114,7 @@ class FactionApiTests(APITestCase):
         """Owner can update their own faction."""
         faction = models.Faction.objects.create(
             name="Old Name",
-            created_by=self.user,
+            owner=self.user,
         )
         url = detail_url(faction.id)
 
@@ -131,13 +132,13 @@ class FactionApiTests(APITestCase):
         )
         faction = models.Faction.objects.create(
             name="Secret Society",
-            created_by=other_user,
+            owner=other_user,
         )
         url = detail_url(faction.id)
 
         res = self.client.patch(url, {"name": "Hacked!"}, format="json")
 
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         faction.refresh_from_db()
         self.assertEqual(faction.name, "Secret Society")
 
@@ -145,7 +146,7 @@ class FactionApiTests(APITestCase):
         """Owner can delete their own faction."""
         faction = models.Faction.objects.create(
             name="Temporary Faction",
-            created_by=self.user,
+            owner=self.user,
         )
         url = detail_url(faction.id)
 
@@ -163,12 +164,142 @@ class FactionApiTests(APITestCase):
         )
         faction = models.Faction.objects.create(
             name="Restricted Faction",
-            created_by=other_user,
+            owner=other_user,
         )
         url = detail_url(faction.id)
 
         res = self.client.delete(url)
 
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         exists = models.Faction.objects.filter(id=faction.id).exists()
         self.assertTrue(exists)
+
+    def test_user_can_view_others_faction_in_public_story(self):
+        """Authenticated users can retrieve factions
+          that appear in public stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        faction = models.Faction.objects.create(
+            name="Adepti",
+            owner=other_user,
+        )
+        story = models.Story.objects.create(
+            title="Public Story",
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=other_user,
+        )
+        story.factions.add(faction)
+
+        url = detail_url(faction.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["name"], "Adepti")
+
+    def test_anonymous_user_can_view_faction_in_public_story(self):
+        """Anonymous users can retrieve factions
+          that appear in public stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        faction = models.Faction.objects.create(
+            name="Fatui",
+            owner=other_user,
+        )
+        story = models.Story.objects.create(
+            title="Public Story",
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=other_user,
+        )
+        story.factions.add(faction)
+
+        self.client.force_authenticate(None)
+        url = detail_url(faction.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["name"], "Fatui")
+
+    def test_anonymous_user_cannot_view_faction_only_in_private_stories(self):
+        """Anonymous users cannot retrieve factions
+          that appear only in private stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        faction = models.Faction.objects.create(
+            name="Hidden Faction",
+            owner=other_user,
+        )
+        story = models.Story.objects.create(
+            title="Private Story",
+            visibility=models.Story.Visibility.PRIVATE,
+            owner=other_user,
+        )
+        story.factions.add(faction)
+
+        self.client.force_authenticate(None)
+        url = detail_url(faction.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_owner_can_view_own_faction_without_public_story(self):
+        """Owners can retrieve their own factions
+          even without public story."""
+        faction = models.Faction.objects.create(
+            name="Private Faction",
+            owner=self.user,
+        )
+
+        url = detail_url(faction.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["name"], "Private Faction")
+
+    def test_list_includes_own_and_public_story_factions_only(self):
+        """Authenticated users see their own factions
+          and factions from public stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+
+        models.Faction.objects.create(
+            name="My Faction",
+            owner=self.user,
+        )
+        public_faction = models.Faction.objects.create(
+            name="Public Faction",
+            owner=other_user,
+        )
+        private_faction = models.Faction.objects.create(
+            name="Private Faction",
+            owner=other_user,
+        )
+
+        public_story = models.Story.objects.create(
+            title="Public Story",
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=other_user,
+        )
+        private_story = models.Story.objects.create(
+            title="Private Story",
+            visibility=models.Story.Visibility.PRIVATE,
+            owner=other_user,
+        )
+
+        public_story.factions.add(public_faction)
+        private_story.factions.add(private_faction)
+
+        res = self.client.get(FACTIONS_URL)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(
+            [f["name"] for f in res.data],
+            ["My Faction", "Public Faction"],
+        )

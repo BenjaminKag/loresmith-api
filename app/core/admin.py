@@ -14,12 +14,12 @@ class LocationAdmin(admin.ModelAdmin):
         "name",
         "location_type",
         "parent",
-        "created_by",
+        "owner",
         "created_at"
     )
-    list_filter = ("location_type", "created_by")
+    list_filter = ("location_type", "owner")
     search_fields = ("name", "description", "parent__name")
-    raw_id_fields = ("parent", "created_by")
+    raw_id_fields = ("parent", "owner")
     readonly_fields = ("created_at", "updated_at")
 
 
@@ -29,21 +29,21 @@ class FactionAdmin(admin.ModelAdmin):
         "name",
         "faction_type",
         "location",
-        "created_by",
+        "owner",
         "created_at"
     )
-    list_filter = ("faction_type", "created_by")
+    list_filter = ("faction_type", "owner")
     search_fields = ("name", "description", "location__name")
-    raw_id_fields = ("location", "created_by")
+    raw_id_fields = ("location", "owner")
     readonly_fields = ("created_at", "updated_at")
 
 
 @admin.register(models.Item)
 class ItemAdmin(admin.ModelAdmin):
-    list_display = ("name", "item_type", "rarity", "created_by", "created_at")
-    list_filter = ("item_type", "rarity", "created_by")
+    list_display = ("name", "item_type", "rarity", "owner", "created_at")
+    list_filter = ("item_type", "rarity", "owner")
     search_fields = ("name", "description")
-    raw_id_fields = ("created_by",)
+    raw_id_fields = ("owner",)
     readonly_fields = ("created_at", "updated_at")
 
 
@@ -54,12 +54,12 @@ class CharacterAdmin(admin.ModelAdmin):
         "species",
         "gender",
         "location",
-        "created_by",
+        "owner",
         "created_at"
     )
-    list_filter = ("species", "gender", "created_by")
+    list_filter = ("species", "gender", "owner")
     search_fields = ("name", "description", "location__name")
-    raw_id_fields = ("location", "created_by")
+    raw_id_fields = ("location", "owner")
     filter_horizontal = ("affiliations", "equipment")
     readonly_fields = ("created_at", "updated_at")
 
@@ -71,12 +71,12 @@ class StoryAdmin(admin.ModelAdmin):
         "kind",
         "story_type",
         "visibility",
-        "created_by",
+        "owner",
         "created_at",
     )
-    list_filter = ("kind", "story_type", "visibility", "created_by")
+    list_filter = ("kind", "story_type", "visibility", "owner")
     search_fields = ("title", "summary", "body")
-    raw_id_fields = ("parent", "created_by")
+    raw_id_fields = ("parent", "owner")
     filter_horizontal = ("characters", "locations", "factions", "items")
     readonly_fields = ("created_at", "updated_at")
     prepopulated_fields = {"slug": ("title",)}

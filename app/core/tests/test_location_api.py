@@ -49,12 +49,12 @@ class LocationApiTests(APITestCase):
         location = models.Location.objects.get(id=res.data["id"])
         self.assertEqual(location.description, "A frozen mountain.")
         self.assertEqual(location.location_type, "region")
-        self.assertEqual(location.created_by, self.user)
+        self.assertEqual(location.owner, self.user)
 
     def test_list_locations(self):
         """GET /api/locations/ should return a list of locations."""
-        models.Location.objects.create(name="Mondstadt")
-        models.Location.objects.create(name="Liyue Harbor")
+        models.Location.objects.create(name="Mondstadt", owner=self.user)
+        models.Location.objects.create(name="Liyue Harbor", owner=self.user)
 
         res = self.client.get(LOCATIONS_URL)
 
@@ -71,6 +71,7 @@ class LocationApiTests(APITestCase):
             name="Dragonspine",
             description="A frozen mountain.",
             location_type="region",
+            owner=self.user,
         )
         url = detail_url(location.id)
 
@@ -93,7 +94,7 @@ class LocationApiTests(APITestCase):
         """PATCH should allow the owner to update their location."""
         location = models.Location.objects.create(
             name="Old Name",
-            created_by=self.user,
+            owner=self.user,
         )
         url = detail_url(location.id)
 
@@ -111,13 +112,13 @@ class LocationApiTests(APITestCase):
         )
         location = models.Location.objects.create(
             name="Secret Base",
-            created_by=other_user,
+            owner=other_user,
         )
         url = detail_url(location.id)
 
         res = self.client.patch(url, {"name": "Hacked!"}, format="json")
 
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         location.refresh_from_db()
         self.assertEqual(location.name, "Secret Base")
 
@@ -125,7 +126,7 @@ class LocationApiTests(APITestCase):
         """DELETE should allow the owner to delete their location."""
         location = models.Location.objects.create(
             name="Temporary Location",
-            created_by=self.user,
+            owner=self.user,
         )
         url = detail_url(location.id)
 
@@ -143,12 +144,98 @@ class LocationApiTests(APITestCase):
         )
         location = models.Location.objects.create(
             name="Restricted Area",
-            created_by=other_user,
+            owner=other_user,
         )
         url = detail_url(location.id)
 
         res = self.client.delete(url)
 
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         exists = models.Location.objects.filter(id=location.id).exists()
         self.assertTrue(exists)
+
+    def test_user_can_view_others_location_in_public_story(self):
+        """Authenticated users can retrieve locations
+          that appear in public stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        location = models.Location.objects.create(
+            name="Liyue Harbor",
+            owner=other_user,
+        )
+        story = models.Story.objects.create(
+            title="Public Story",
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=other_user,
+        )
+        story.locations.add(location)
+
+        url = detail_url(location.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["name"], "Liyue Harbor")
+
+    def test_anonymous_user_can_view_location_in_public_story(self):
+        """Anonymous users can retrieve locations
+          that appear in public stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        location = models.Location.objects.create(
+            name="Mondstadt",
+            owner=other_user,
+        )
+        story = models.Story.objects.create(
+            title="Public Story",
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=other_user,
+        )
+        story.locations.add(location)
+
+        self.client.force_authenticate(None)
+        url = detail_url(location.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_anonymous_user_cannot_view_location_only_in_private_stories(self):
+        """Anonymous users cannot retrieve locations that
+          appear only in private stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        location = models.Location.objects.create(
+            name="Hidden Location",
+            owner=other_user,
+        )
+        story = models.Story.objects.create(
+            title="Private Story",
+            visibility=models.Story.Visibility.PRIVATE,
+            owner=other_user,
+        )
+        story.locations.add(location)
+
+        self.client.force_authenticate(None)
+        url = detail_url(location.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_owner_can_view_own_location_without_public_story(self):
+        """Owners can retrieve their own locations
+          even without public story."""
+        location = models.Location.objects.create(
+            name="Private Location",
+            owner=self.user,
+        )
+
+        url = detail_url(location.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["name"], "Private Location")

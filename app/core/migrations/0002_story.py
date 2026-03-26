@@ -29,7 +29,7 @@ class Migration(migrations.Migration):
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
                 ('characters', models.ManyToManyField(blank=True, related_name='stories', to='core.character')),
-                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='stories', to=settings.AUTH_USER_MODEL)),
+                ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='stories', to=settings.AUTH_USER_MODEL)),
                 ('factions', models.ManyToManyField(blank=True, related_name='stories', to='core.faction')),
                 ('items', models.ManyToManyField(blank=True, related_name='stories', to='core.item')),
                 ('locations', models.ManyToManyField(blank=True, related_name='stories', to='core.location')),

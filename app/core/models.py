@@ -34,12 +34,12 @@ class Location(models.Model):
     tags = models.JSONField(default=list, null=True, blank=True)
     extra_data = models.JSONField(default=dict, null=True, blank=True)
 
-    created_by = models.ForeignKey(
+    owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="locations",
+        related_name="owned_locations",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -77,12 +77,12 @@ class Faction(models.Model):
     tags = models.JSONField(default=list, null=True, blank=True)
     extra_data = models.JSONField(default=dict, null=True, blank=True)
 
-    created_by = models.ForeignKey(
+    owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="factions",
+        related_name="owned_factions",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -115,12 +115,12 @@ class Item(models.Model):
     tags = models.JSONField(default=list, null=True, blank=True)
     extra_data = models.JSONField(default=dict, null=True, blank=True)
 
-    created_by = models.ForeignKey(
+    owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="items",
+        related_name="owned_items",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -176,12 +176,12 @@ class Character(models.Model):
     tags = models.JSONField(default=list, null=True, blank=True)
     extra_data = models.JSONField(default=dict, null=True, blank=True)
 
-    created_by = models.ForeignKey(
+    owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="characters",
+        related_name="owned_characters",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -280,12 +280,12 @@ class Story(models.Model):
         related_name="stories"
     )
 
-    created_by = models.ForeignKey(
+    owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="stories",
+        related_name="owned_stories",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -334,6 +334,16 @@ class Story(models.Model):
         ):
             raise ValidationError({
                 "kind": "Standalone entries cannot have child stories."
+            })
+
+        # public child requires public parent
+        if (
+            self.visibility == self.Visibility.PUBLIC
+            and self.parent is not None
+            and self.parent.visibility != self.Visibility.PUBLIC
+        ):
+            raise ValidationError({
+                "visibility": "A public story cannot have a non-public parent."
             })
 
     def save(self, *args, **kwargs):

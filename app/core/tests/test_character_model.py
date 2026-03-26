@@ -72,21 +72,21 @@ class CharacterModelTests(TestCase):
         user = create_user()
         location = models.Location.objects.create(
             name="Liyue Harbor",
-            created_by=user
+            owner=user
         )
         affiliation = models.Faction.objects.create(
             name="Adepti",
-            created_by=user
+            owner=user
         )
         item = models.Item.objects.create(
             name="Vortex Vanquisher",
-            created_by=user
+            owner=user
         )
 
         character = models.Character.objects.create(
             name="Zhongli",
             location=location,
-            created_by=user,
+            owner=user,
         )
         character.affiliations.add(affiliation)
         character.equipment.add(item)
@@ -108,16 +108,16 @@ class CharacterModelTests(TestCase):
         user = create_user()
         faction1 = models.Faction.objects.create(
             name="Hexenzirkel",
-            created_by=user
+            owner=user
         )
         faction2 = models.Faction.objects.create(
             name="Sinners",
-            created_by=user
+            owner=user
         )
 
         character = models.Character.objects.create(
             name="Rheindottir",
-            created_by=user,
+            owner=user,
         )
         character.affiliations.add(faction1, faction2)
 
@@ -131,16 +131,16 @@ class CharacterModelTests(TestCase):
         user = create_user()
         item1 = models.Item.objects.create(
             name="Anemo Vision",
-            created_by=user
+            owner=user
         )
         item2 = models.Item.objects.create(
             name="Jade Winged Spear",
-            created_by=user
+            owner=user
         )
 
         character = models.Character.objects.create(
             name="Xiao",
-            created_by=user,
+            owner=user,
         )
         character.equipment.add(item1, item2)
 
@@ -149,16 +149,16 @@ class CharacterModelTests(TestCase):
         self.assertIn(character, item1.holders.all())
         self.assertIn(character, item2.holders.all())
 
-    def test_character_created_by_user(self):
-        """Test that character has created_by field set correctly."""
+    def test_character_owner_user(self):
+        """Test that character has owner field set correctly."""
         user = create_user()
         character = models.Character.objects.create(
             name="Diluc",
-            created_by=user,
+            owner=user,
         )
 
-        self.assertEqual(character.created_by, user)
-        self.assertIn(character, user.characters.all())
+        self.assertEqual(character.owner, user)
+        self.assertIn(character, user.owned_characters.all())
 
     def test_character_tags_field(self):
         """Character tags field stores a list and defaults to empty list."""

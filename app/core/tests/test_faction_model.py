@@ -61,16 +61,16 @@ class FactionModelTests(TestCase):
         )
         self.assertIsNone(faction.location)
 
-    def test_faction_created_by_user(self):
-        """Test that faction has created_by field set correctly."""
+    def test_faction_owner_user(self):
+        """Test that faction has owner field set correctly."""
         user = create_user()
         faction = models.Faction.objects.create(
             name="Adepti",
-            created_by=user,
+            owner=user,
         )
 
-        self.assertEqual(faction.created_by, user)
-        self.assertIn(faction, user.factions.all())
+        self.assertEqual(faction.owner, user)
+        self.assertIn(faction, user.owned_factions.all())
 
     def test_faction_tags_field(self):
         """tags stores a list and defaults to empty list."""

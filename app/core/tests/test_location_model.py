@@ -71,16 +71,16 @@ class LocationModelTests(TestCase):
         self.assertIsNone(continent.parent)
         self.assertEqual(continent.sub_locations.count(), 0)
 
-    def test_location_created_by_user(self):
-        """Test that location has created_by field set correctly."""
+    def test_location_owner_user(self):
+        """Test that location has owner field set correctly."""
         user = create_user()
         location = models.Location.objects.create(
             name="Liyue Harbor",
-            created_by=user,
+            owner=user,
         )
 
-        self.assertEqual(location.created_by, user)
-        self.assertIn(location, user.locations.all())
+        self.assertEqual(location.owner, user)
+        self.assertIn(location, user.owned_locations.all())
 
     def test_location_tags_field(self):
         """tags stores a list and defaults to empty list."""

@@ -3,6 +3,8 @@ ViewSet for Faction objects.
 """
 from rest_framework import viewsets, permissions
 
+from django.db.models import Q
+
 from core import models, serializers
 from core.permissions import IsOwnerOrReadOnly
 
@@ -13,10 +15,6 @@ from drf_spectacular.utils import extend_schema
 class FactionViewSet(viewsets.ModelViewSet):
     """ViewSet for managing Faction objects via the API."""
 
-    queryset = models.Faction.objects.all().select_related(
-        "location",
-        "created_by"
-    )
     serializer_class = serializers.FactionSerializer
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly,
@@ -24,5 +22,23 @@ class FactionViewSet(viewsets.ModelViewSet):
     ]
 
     def perform_create(self, serializer):
-        """Set the created_by user on creation."""
-        serializer.save(created_by=self.request.user)
+        """Set the owner user on creation."""
+        serializer.save(owner=self.request.user)
+
+    def get_queryset(self):
+        base_queryset = models.Faction.objects.select_related(
+            "location",
+            "owner"
+        )
+
+        user = self.request.user
+
+        if user.is_authenticated:
+            return base_queryset.filter(
+                Q(owner=user) |
+                Q(stories__visibility=models.Story.Visibility.PUBLIC)
+            ).distinct()
+
+        return base_queryset.filter(
+            stories__visibility=models.Story.Visibility.PUBLIC
+        ).distinct()

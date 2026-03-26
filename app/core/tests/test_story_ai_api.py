@@ -3,6 +3,7 @@ from django.test import override_settings
 
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 
 from rest_framework.test import APITestCase
 from rest_framework import status
@@ -21,12 +22,12 @@ def create_user(email="user@example.com", password="testpass123"):
     return get_user_model().objects.create_user(email=email, password=password)
 
 
-def create_story(user, **params):
+def create_story(owner, **params):
     defaults = {
         "title": "Test story",
         "summary": "Short summary",
         "body": "Longer body text for AI analysis.",
-        "created_by": user,
+        "owner": owner,
     }
     defaults.update(params)
     return models.Story.objects.create(**defaults)
@@ -36,13 +37,14 @@ class StoryAIApiTests(APITestCase):
     """Tests for the story AI analyze endpoint."""
 
     def setUp(self):
+        cache.clear()
         self.user = create_user()
         self.client.force_authenticate(self.user)
 
     @mock.patch("core.views.story.LoreAIService")
     def test_owner_can_analyze_story(self, mock_ai_service_cls):
         """Owner can call /analyze and gets structured response."""
-        story = create_story(user=self.user)
+        story = create_story(owner=self.user)
 
         mock_service = mock_ai_service_cls.return_value
         mock_service.analyze_text.return_value = {
@@ -65,7 +67,7 @@ class StoryAIApiTests(APITestCase):
 
     def test_anonymous_cannot_analyze(self):
         """Unauthenticated user cannot access the analyze endpoint."""
-        story = create_story(user=self.user)
+        story = create_story(owner=self.user)
         self.client.force_authenticate(user=None)
 
         res = self.client.post(analyze_url(story.id))
@@ -78,7 +80,7 @@ class StoryAIApiTests(APITestCase):
     def test_non_owner_cannot_analyze(self):
         """Another authenticated user cannot analyze someone else's story."""
         other_user = create_user(email="other@example.com")
-        story = create_story(user=self.user)
+        story = create_story(owner=self.user)
 
         self.client.force_authenticate(other_user)
         res = self.client.post(analyze_url(story.id))
@@ -95,7 +97,7 @@ class StoryAIApiTests(APITestCase):
     @mock.patch("core.services.ai_client.LoreAIService._mock_response")
     def test_ai_uses_mock_mode_when_disabled(self, mock_mock_response):
         """AI should fall back to mock mode when disabled or no API key."""
-        story = create_story(user=self.user)
+        story = create_story(owner=self.user)
 
         mock_mock_response.return_value = {
             "summary": "mock summary",
@@ -124,7 +126,7 @@ class StoryAIApiTests(APITestCase):
     def test_analyze_returns_400_when_nothing_to_analyze(self):
         """Return 400 if story has no summary/body."""
         story = create_story(
-            user=self.user,
+            owner=self.user,
             title="Valid Title",
             summary="  ",  # whitespace only
             body="",
@@ -141,7 +143,7 @@ class StoryAIApiTests(APITestCase):
         mock_ai_service_class,
     ):
         """Return 429 when AI daily budget is exceeded."""
-        story = create_story(user=self.user)
+        story = create_story(owner=self.user)
 
         mock_service = mock_ai_service_class.return_value
         mock_service.analyze_text.side_effect = DailyBudgetExceeded(
@@ -159,7 +161,7 @@ class StoryAIApiTests(APITestCase):
         mock_ai_service_class,
     ):
         """Return 503 when AI service raises an error."""
-        story = create_story(user=self.user)
+        story = create_story(owner=self.user)
 
         mock_service = mock_ai_service_class.return_value
         mock_service.analyze_text.side_effect = AiServiceError(
@@ -182,7 +184,7 @@ class StoryAIApiTests(APITestCase):
         _mock_get_rate,
     ):
         """User should be throttled on /analyze after exceeding the rate."""
-        story = create_story(user=self.user)
+        story = create_story(owner=self.user)
         url = analyze_url(story.id)
 
         mock_service = mock_ai_service_class.return_value

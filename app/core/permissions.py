@@ -14,4 +14,4 @@ class IsOwnerOrReadOnly(BasePermission):
         if request.method in SAFE_METHODS:
             return True
 
-        return getattr(obj, "created_by", None) == request.user
+        return getattr(obj, "owner", None) == request.user

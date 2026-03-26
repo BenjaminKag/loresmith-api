@@ -2,6 +2,7 @@
 Tests for core serializers.
 """
 from django.test import TestCase
+from django.contrib.auth import get_user_model
 
 from core import models
 from core import serializers
@@ -473,6 +474,55 @@ class CharacterSerializerTests(TestCase):
         self.assertEqual(list(character.affiliations.all()), [])
         self.assertEqual(list(character.equipment.all()), [])
 
+    def test_character_owner_is_assigned_from_request(self):
+        user = get_user_model().objects.create_user(
+            email="test@example.com",
+            password="testpass123",
+        )
+
+        payload = {
+            "name": "Xiao",
+        }
+
+        serializer = serializers.CharacterSerializer(
+            data=payload,
+            context={"request": type("obj", (), {"user": user})()},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        character = serializer.save()
+
+        self.assertEqual(character.owner, user)
+
+    def test_character_cannot_use_other_users_location(self):
+        user = get_user_model().objects.create_user(
+            email="user1@example.com",
+            password="testpass123",
+        )
+        other_user = get_user_model().objects.create_user(
+            email="user2@example.com",
+            password="testpass123",
+        )
+
+        location = models.Location.objects.create(
+            name="Mondstadt",
+            owner=other_user,
+        )
+
+        payload = {
+            "name": "Xiao",
+            "location": location.id,
+        }
+
+        serializer = serializers.CharacterSerializer(
+            data=payload,
+            context={"request": type("obj", (), {"user": user})()},
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("location", serializer.errors)
+
 
 class StorySerializerTests(TestCase):
     """Tests for the StorySerializer."""
@@ -739,3 +789,78 @@ class StorySerializerTests(TestCase):
         serializer = serializers.StorySerializer(data=payload)
 
         self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_story_owner_is_assigned_from_request(self):
+        user = get_user_model().objects.create_user(
+            email="test@example.com",
+            password="testpass123",
+        )
+
+        payload = {
+            "title": "Owned Story",
+        }
+
+        serializer = serializers.StorySerializer(
+            data=payload,
+            context={"request": type("obj", (), {"user": user})()},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        story = serializer.save()
+
+        self.assertEqual(story.owner, user)
+
+    def test_story_owner_cannot_be_spoofed(self):
+        user = get_user_model().objects.create_user(
+            email="user1@example.com",
+            password="testpass123",
+        )
+        other_user = get_user_model().objects.create_user(
+            email="user2@example.com",
+            password="testpass123",
+        )
+
+        payload = {
+            "title": "Spoof Attempt",
+            "owner": other_user.id,
+        }
+
+        serializer = serializers.StorySerializer(
+            data=payload,
+            context={"request": type("obj", (), {"user": user})()},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        story = serializer.save()
+
+        self.assertEqual(story.owner, user)
+
+    def test_story_cannot_use_other_users_character(self):
+        user = get_user_model().objects.create_user(
+            email="user1@example.com",
+            password="testpass123",
+        )
+        other_user = get_user_model().objects.create_user(
+            email="user2@example.com",
+            password="testpass123",
+        )
+
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=other_user,
+        )
+
+        payload = {
+            "title": "Invalid Story",
+            "characters": [character.id],
+        }
+
+        serializer = serializers.StorySerializer(
+            data=payload,
+            context={"request": type("obj", (), {"user": user})()},
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("characters", serializer.errors)
