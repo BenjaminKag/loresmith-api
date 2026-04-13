@@ -3,11 +3,19 @@ Tests for the Story API.
 """
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 
 from rest_framework.test import APITestCase
 from rest_framework import status
 
 from core import models
+
+import os
+import shutil
+import tempfile
+from PIL import Image
 
 
 STORIES_URL = reverse("story-list")
@@ -23,6 +31,7 @@ def create_user(**params):
     return get_user_model().objects.create_user(**params)
 
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
 class StoryApiTests(APITestCase):
     """Tests for the Story API."""
 
@@ -33,6 +42,24 @@ class StoryApiTests(APITestCase):
             name="Test User",
         )
         self.client.force_authenticate(self.user)
+
+    @staticmethod
+    def generate_image_file(name="test.jpg"):
+        """Generate a temporary image file for upload tests."""
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as ntf:
+            img = Image.new("RGB", (10, 10))
+            img.save(ntf, format="JPEG")
+            ntf.seek(0)
+            return SimpleUploadedFile(
+                name=name,
+                content=ntf.read(),
+                content_type="image/jpeg",
+            )
+
+    def tearDown(self):
+        """Clean up temporary media files after each test run."""
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+        super().tearDown()
 
     def test_create_story_with_relations(self):
         """
@@ -362,3 +389,135 @@ class StoryApiTests(APITestCase):
             [s["title"] for s in res.data],
             ["My Story", "Public Story"],
         )
+
+    def test_upload_image_to_story(self):
+        """User can upload an image to their own story."""
+        story = models.Story.objects.create(
+            title="Story with Image",
+            owner=self.user,
+        )
+        url = detail_url(story.id)
+        image = self.generate_image_file()
+
+        res = self.client.patch(
+            url,
+            {"image": image},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        story.refresh_from_db()
+        self.assertTrue(bool(story.image))
+        self.assertIn("/media/uploads/story/", res.data["image"])
+        self.assertTrue(os.path.exists(story.image.path))
+
+    def test_upload_invalid_image_returns_400(self):
+        """Uploading a non-image file should return 400."""
+        story = models.Story.objects.create(
+            title="Story with Invalid Image",
+            owner=self.user,
+        )
+        url = detail_url(story.id)
+
+        bad_file = SimpleUploadedFile(
+            "not-image.txt",
+            b"this is not an image",
+            content_type="text/plain",
+        )
+
+        res = self.client.patch(
+            url,
+            {"image": bad_file},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("image", res.data)
+
+    def test_replace_image_deletes_old_file(self):
+        """Replacing a story image deletes the old file from storage."""
+        story = models.Story.objects.create(
+            title="Story Replace Image",
+            owner=self.user,
+            image=self.generate_image_file(name="old.jpg"),
+        )
+        old_image_path = story.image.path
+        url = detail_url(story.id)
+
+        new_image = self.generate_image_file(name="new.jpg")
+
+        res = self.client.patch(
+            url,
+            {"image": new_image},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        story.refresh_from_db()
+        self.assertTrue(bool(story.image))
+        self.assertTrue(os.path.exists(story.image.path))
+        self.assertFalse(os.path.exists(old_image_path))
+        self.assertNotEqual(story.image.path, old_image_path)
+
+    def test_remove_image_deletes_file(self):
+        """Clearing a story image deletes the file from storage."""
+        story = models.Story.objects.create(
+            title="Story Remove Image",
+            owner=self.user,
+            image=self.generate_image_file(),
+        )
+        image_path = story.image.path
+        url = detail_url(story.id)
+
+        res = self.client.patch(
+            url,
+            {"image": ""},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        story.refresh_from_db()
+        self.assertFalse(bool(story.image))
+        self.assertFalse(os.path.exists(image_path))
+
+    def test_delete_story_deletes_image_file(self):
+        """Deleting a story deletes its image file from storage."""
+        story = models.Story.objects.create(
+            title="Story Delete Image",
+            owner=self.user,
+            image=self.generate_image_file(),
+        )
+        image_path = story.image.path
+        url = detail_url(story.id)
+
+        res = self.client.delete(url)
+
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(models.Story.objects.filter(id=story.id).exists())
+        self.assertFalse(os.path.exists(image_path))
+
+    def test_user_cannot_upload_image_to_others_story(self):
+        """Users cannot upload an image to another user's story."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        story = models.Story.objects.create(
+            title="Other User Story",
+            owner=other_user,
+        )
+        url = detail_url(story.id)
+        image = self.generate_image_file()
+
+        res = self.client.patch(
+            url,
+            {"image": image},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        story.refresh_from_db()
+        self.assertFalse(bool(story.image))

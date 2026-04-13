@@ -8,6 +8,12 @@ from . import models
 
 class LocationSerializer(serializers.ModelSerializer):
     """Serializer for Location model."""
+    image = serializers.ImageField(
+        use_url=True,
+        required=False,
+        allow_null=True
+    )
+
     class Meta:
         model = models.Location
         fields = "__all__"
@@ -22,6 +28,12 @@ class LocationSerializer(serializers.ModelSerializer):
 
 class FactionSerializer(serializers.ModelSerializer):
     """Serializer for Faction model."""
+    image = serializers.ImageField(
+        use_url=True,
+        required=False,
+        allow_null=True
+    )
+
     class Meta:
         model = models.Faction
         fields = "__all__"
@@ -35,6 +47,13 @@ class FactionSerializer(serializers.ModelSerializer):
 
 
 class ItemSerializer(serializers.ModelSerializer):
+    """Serializer for Item model."""
+    image = serializers.ImageField(
+        use_url=True,
+        required=False,
+        allow_null=True
+    )
+
     class Meta:
         model = models.Item
         fields = "__all__"
@@ -48,6 +67,13 @@ class ItemSerializer(serializers.ModelSerializer):
 
 
 class CharacterSerializer(serializers.ModelSerializer):
+    """Serializer for Character model."""
+    image = serializers.ImageField(
+        use_url=True,
+        required=False,
+        allow_null=True
+    )
+
     class Meta:
         model = models.Character
         fields = "__all__"
@@ -92,6 +118,13 @@ class CharacterSerializer(serializers.ModelSerializer):
 
 
 class StorySerializer(serializers.ModelSerializer):
+    """Serializer for Story model."""
+    image = serializers.ImageField(
+        use_url=True,
+        required=False,
+        allow_null=True
+    )
+
     class Meta:
         model = models.Story
         fields = "__all__"

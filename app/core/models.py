@@ -6,8 +6,10 @@ from django.conf import settings
 from django.utils.text import slugify
 from django.core.exceptions import ValidationError
 
+from .mixins import ImageCleanupMixin
 
-class Location(models.Model):
+
+class Location(ImageCleanupMixin, models.Model):
     """Represents a place in the world."""
 
     class Meta:
@@ -15,6 +17,12 @@ class Location(models.Model):
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+
+    image = models.ImageField(
+        null=True,
+        blank=True,
+        upload_to="uploads/location/"
+    )
 
     location_type = models.CharField(
         max_length=100,
@@ -45,11 +53,20 @@ class Location(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        old_image = self._get_old_image()
+        super().save(*args, **kwargs)
+        self._delete_old_image_if_replaced(old_image)
+
+    def delete(self, *args, **kwargs):
+        self._delete_image_file()
+        super().delete(*args, **kwargs)
+
     def __str__(self) -> str:
         return self.name
 
 
-class Faction(models.Model):
+class Faction(ImageCleanupMixin, models.Model):
     """Represents a group, affiliation, organization, clan, etc."""
 
     class Meta:
@@ -57,6 +74,12 @@ class Faction(models.Model):
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+
+    image = models.ImageField(
+        null=True,
+        blank=True,
+        upload_to="uploads/faction/"
+    )
 
     faction_type = models.CharField(
         max_length=100,
@@ -88,11 +111,20 @@ class Faction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        old_image = self._get_old_image()
+        super().save(*args, **kwargs)
+        self._delete_old_image_if_replaced(old_image)
+
+    def delete(self, *args, **kwargs):
+        self._delete_image_file()
+        super().delete(*args, **kwargs)
+
     def __str__(self) -> str:
         return self.name
 
 
-class Item(models.Model):
+class Item(ImageCleanupMixin, models.Model):
     """Represents weapons, tools, artifacts, gear, etc."""
 
     class Meta:
@@ -100,6 +132,12 @@ class Item(models.Model):
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+
+    image = models.ImageField(
+        null=True,
+        blank=True,
+        upload_to="uploads/item/"
+    )
 
     item_type = models.CharField(
         max_length=100,
@@ -126,11 +164,20 @@ class Item(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        old_image = self._get_old_image()
+        super().save(*args, **kwargs)
+        self._delete_old_image_if_replaced(old_image)
+
+    def delete(self, *args, **kwargs):
+        self._delete_image_file()
+        super().delete(*args, **kwargs)
+
     def __str__(self) -> str:
         return self.name
 
 
-class Character(models.Model):
+class Character(ImageCleanupMixin, models.Model):
     """Core character model."""
 
     class Meta:
@@ -138,6 +185,11 @@ class Character(models.Model):
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
+    image = models.ImageField(
+        null=True,
+        blank=True,
+        upload_to="uploads/character/"
+    )
     age = models.IntegerField(null=True, blank=True)
     age_description = models.CharField(max_length=50, blank=True)
     # To be made a model in the future
@@ -187,11 +239,20 @@ class Character(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        old_image = self._get_old_image()
+        super().save(*args, **kwargs)
+        self._delete_old_image_if_replaced(old_image)
+
+    def delete(self, *args, **kwargs):
+        self._delete_image_file()
+        super().delete(*args, **kwargs)
+
     def __str__(self) -> str:
         return self.name
 
 
-class Story(models.Model):
+class Story(ImageCleanupMixin, models.Model):
     """Represents a full story or a lore entry."""
 
     class Meta:
@@ -201,6 +262,11 @@ class Story(models.Model):
     slug = models.SlugField(unique=True, blank=True)
     summary = models.TextField(blank=True)
     body = models.TextField(blank=True)
+    image = models.ImageField(
+        null=True,
+        blank=True,
+        upload_to="uploads/story/"
+    )
 
     # Hierarchy rules:
     # - story: root entry that can contain parts
@@ -347,7 +413,16 @@ class Story(models.Model):
             })
 
     def save(self, *args, **kwargs):
+        old_image = self._get_old_image()
+
         if not self.slug:
             self.slug = slugify(self.title)
+
         self.full_clean()
         super().save(*args, **kwargs)
+
+        self._delete_old_image_if_replaced(old_image)
+
+    def delete(self, *args, **kwargs):
+        self._delete_image_file()
+        super().delete(*args, **kwargs)

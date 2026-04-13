@@ -3,11 +3,19 @@ Tests for the Character API.
 """
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 
 from rest_framework.test import APITestCase
 from rest_framework import status
 
 from core import models
+
+import os
+import shutil
+import tempfile
+from PIL import Image
 
 
 CHARACTERS_URL = reverse("character-list")
@@ -23,6 +31,7 @@ def create_user(**params):
     return get_user_model().objects.create_user(**params)
 
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
 class CharacterApiTests(APITestCase):
     """Tests for the Character API."""
 
@@ -33,6 +42,24 @@ class CharacterApiTests(APITestCase):
             name="Test User",
         )
         self.client.force_authenticate(self.user)
+
+    @staticmethod
+    def generate_image_file(name="test.jpg"):
+        """Generate a temporary image file for upload tests."""
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as ntf:
+            img = Image.new("RGB", (10, 10))
+            img.save(ntf, format="JPEG")
+            ntf.seek(0)
+            return SimpleUploadedFile(
+                name=name,
+                content=ntf.read(),
+                content_type="image/jpeg",
+            )
+
+    def tearDown(self):
+        """Clean up temporary media files after each test run."""
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+        super().tearDown()
 
     def test_create_character_with_relations(self):
         """
@@ -352,3 +379,137 @@ class CharacterApiTests(APITestCase):
             [c["name"] for c in res.data],
             ["My Character", "Public Character"],
         )
+
+    def test_upload_image_to_character(self):
+        """User can upload an image to their own character."""
+        character = models.Character.objects.create(
+            name="Character with Image",
+            owner=self.user,
+        )
+        url = detail_url(character.id)
+        image = self.generate_image_file()
+
+        res = self.client.patch(
+            url,
+            {"image": image},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        character.refresh_from_db()
+        self.assertTrue(bool(character.image))
+        self.assertIn("/media/uploads/character/", res.data["image"])
+        self.assertTrue(os.path.exists(character.image.path))
+
+    def test_upload_invalid_image_returns_400(self):
+        """Uploading a non-image file should return 400."""
+        character = models.Character.objects.create(
+            name="Character with Invalid Image",
+            owner=self.user,
+        )
+        url = detail_url(character.id)
+
+        bad_file = SimpleUploadedFile(
+            "not-image.txt",
+            b"this is not an image",
+            content_type="text/plain",
+        )
+
+        res = self.client.patch(
+            url,
+            {"image": bad_file},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("image", res.data)
+
+    def test_replace_image_deletes_old_file(self):
+        """Replacing a character image deletes the old file from storage."""
+        character = models.Character.objects.create(
+            name="Character Replace Image",
+            owner=self.user,
+            image=self.generate_image_file(name="old.jpg"),
+        )
+        old_image_path = character.image.path
+        url = detail_url(character.id)
+
+        new_image = self.generate_image_file(name="new.jpg")
+
+        res = self.client.patch(
+            url,
+            {"image": new_image},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        character.refresh_from_db()
+        self.assertTrue(bool(character.image))
+        self.assertTrue(os.path.exists(character.image.path))
+        self.assertFalse(os.path.exists(old_image_path))
+        self.assertNotEqual(character.image.path, old_image_path)
+
+    def test_remove_image_deletes_file(self):
+        """Clearing a character image deletes the file from storage."""
+        character = models.Character.objects.create(
+            name="Character Remove Image",
+            owner=self.user,
+            image=self.generate_image_file(),
+        )
+        image_path = character.image.path
+        url = detail_url(character.id)
+
+        res = self.client.patch(
+            url,
+            {"image": ""},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        character.refresh_from_db()
+        self.assertFalse(bool(character.image))
+        self.assertFalse(os.path.exists(image_path))
+
+    def test_delete_character_deletes_image_file(self):
+        """Deleting a character deletes its image file from storage."""
+        character = models.Character.objects.create(
+            name="Character Delete Image",
+            owner=self.user,
+            image=self.generate_image_file(),
+        )
+        image_path = character.image.path
+        url = detail_url(character.id)
+
+        res = self.client.delete(url)
+
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(
+            models.Character.objects.filter(id=character.id).exists()
+        )
+        self.assertFalse(os.path.exists(image_path))
+
+    def test_user_cannot_upload_image_to_others_character(self):
+        """Users cannot upload an image to another user's character."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+        character = models.Character.objects.create(
+            name="Other User Character",
+            owner=other_user,
+        )
+        url = detail_url(character.id)
+        image = self.generate_image_file()
+
+        res = self.client.patch(
+            url,
+            {"image": image},
+            format="multipart",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        character.refresh_from_db()
+        self.assertFalse(bool(character.image))
