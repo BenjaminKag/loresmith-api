@@ -11,6 +11,8 @@ from rest_framework import status
 from core import models
 from core.services.ai_client import DailyBudgetExceeded, AiServiceError
 
+import uuid
+
 ANALYZE_URL_NAME = "story-analyze"
 
 
@@ -18,8 +20,12 @@ def analyze_url(story_id: int) -> str:
     return reverse("story-analyze", args=[story_id])
 
 
-def create_user(email="user@example.com", password="testpass123"):
-    return get_user_model().objects.create_user(email=email, password=password)
+def create_user(email=None, password="testpass123", **extra):
+    """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
+
+    return get_user_model().objects.create_user(email, password, **extra)
 
 
 def create_story(owner, **params):

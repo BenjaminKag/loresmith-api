@@ -6,14 +6,29 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 import time
+import uuid
 
 from core import models
 
 
-def create_user(email="test@example.com", password="testpass123", **extra):
+def create_user(email=None, password="testpass123", **extra):
     """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
 
     return get_user_model().objects.create_user(email, password, **extra)
+
+
+def create_character(**params):
+    if "owner" not in params:
+        params["owner"] = create_user()
+
+    defaults = {
+        "name": "Default Character",
+    }
+    defaults.update(params)
+
+    return models.Character.objects.create(**defaults)
 
 
 class CharacterModelTests(TestCase):
@@ -21,14 +36,12 @@ class CharacterModelTests(TestCase):
 
     def test_string_representation(self):
         """__str__ should return the character name."""
-        character = models.Character.objects.create(
-            name="Xiao",
-        )
+        character = create_character(name="Xiao")
         self.assertEqual(str(character), "Xiao")
 
     def test_character_with_basic_identity_fields(self):
         """Test character creation with basic identity fields."""
-        character = models.Character.objects.create(
+        character = create_character(
             name="Xiao",
             description="A vigilant yaksha.",
             age=2000,
@@ -46,16 +59,16 @@ class CharacterModelTests(TestCase):
 
     def test_character_relationships_field(self):
         """Test the relationships field."""
-        mentor = models.Character.objects.create(name="Rheindottir")
-        sibling1 = models.Character.objects.create(name="Klee")
-        sibling2 = models.Character.objects.create(name="Durin")
+        mentor = create_character(name="Rheindottir")
+        sibling1 = create_character(name="Klee")
+        sibling2 = create_character(name="Durin")
 
         data = {
             "mentor": [mentor.id],
             "siblings": [sibling1.id, sibling2.id]
         }
 
-        character = models.Character.objects.create(
+        character = create_character(
             name="Albedo",
             relationships=data,
         )
@@ -64,7 +77,7 @@ class CharacterModelTests(TestCase):
 
     def test_character_relationships_default_empty(self):
         """Test that relationships field defaults to empty dict."""
-        character = models.Character.objects.create(name="Xiao")
+        character = create_character(name="Xiao")
         self.assertEqual(character.relationships, {})
 
     def test_character_with_location_affiliation_items(self):
@@ -83,10 +96,10 @@ class CharacterModelTests(TestCase):
             owner=user
         )
 
-        character = models.Character.objects.create(
+        character = create_character(
             name="Zhongli",
             location=location,
-            owner=user,
+            owner=user
         )
         character.affiliations.add(affiliation)
         character.equipment.add(item)
@@ -152,24 +165,13 @@ class CharacterModelTests(TestCase):
     def test_character_owner_user(self):
         """Test that character has owner field set correctly."""
         user = create_user()
-        character = models.Character.objects.create(
+        character = create_character(
             name="Diluc",
-            owner=user,
+            owner=user
         )
 
         self.assertEqual(character.owner, user)
         self.assertIn(character, user.owned_characters.all())
-
-    def test_character_tags_field(self):
-        """Character tags field stores a list and defaults to empty list."""
-        character = models.Character.objects.create(
-            name="Xiao",
-            tags=["anemo", "yaksha"],
-        )
-        self.assertEqual(character.tags, ["anemo", "yaksha"])
-
-        other = models.Character.objects.create(name="Albedo")
-        self.assertEqual(other.tags, [])
 
     def test_character_extra_data_field(self):
         """Character extra_data defaults to {} and can store arbitrary dict."""
@@ -179,19 +181,19 @@ class CharacterModelTests(TestCase):
             "notes": {"mask": True, "adeptus": True},
         }
 
-        character = models.Character.objects.create(
+        character = create_character(
             name="Xiao",
             extra_data=data,
         )
         self.assertEqual(character.extra_data, data)
 
-        other = models.Character.objects.create(name="Albedo")
+        other = create_character(name="Albedo")
         self.assertEqual(other.extra_data, {})
 
     def test_character_timestamps_set_on_create(self):
         """created_at and updated_at are set when character is created."""
         before = timezone.now()
-        character = models.Character.objects.create(name="Xiao")
+        character = create_character(name="Xiao")
         after = timezone.now()
 
         self.assertIsNotNone(character.created_at)
@@ -201,7 +203,7 @@ class CharacterModelTests(TestCase):
 
     def test_character_updated_at_changes_on_save(self):
         """updated_at should change when the character is saved again."""
-        character = models.Character.objects.create(name="Xiao")
+        character = create_character(name="Xiao")
         original_updated = character.updated_at
 
         time.sleep(0.01)

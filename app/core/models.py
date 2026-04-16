@@ -9,6 +9,52 @@ from django.core.exceptions import ValidationError
 from .mixins import ImageCleanupMixin
 
 
+class Tag(models.Model):
+    """User-scoped tag that can be attached to multiple entity types."""
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner", "name"],
+                name="unique_tag_per_user"
+            )
+        ]
+
+    name = models.CharField(max_length=100)
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="tags",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def normalize_name(self, name: str) -> str:
+        """Normalize tag name for consistency."""
+        # strip leading/trailing spaces
+        name = name.strip()
+
+        # collapse multiple spaces into one
+        name = " ".join(name.split())
+
+        # normalize casing (Title Case)
+        name = name.title()
+
+        return name
+
+    def save(self, *args, **kwargs):
+        if self.name:
+            self.name = self.normalize_name(self.name)
+
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class Location(ImageCleanupMixin, models.Model):
     """Represents a place in the world."""
 
@@ -39,14 +85,17 @@ class Location(ImageCleanupMixin, models.Model):
         help_text="If set, this location is inside another location."
     )
 
-    tags = models.JSONField(default=list, null=True, blank=True)
+    tags = models.ManyToManyField(
+        "Tag",
+        blank=True,
+        related_name="locations",
+    )
+
     extra_data = models.JSONField(default=dict, null=True, blank=True)
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,
         related_name="owned_locations",
     )
 
@@ -96,15 +145,17 @@ class Faction(ImageCleanupMixin, models.Model):
         help_text="Primary location associated with this faction."
     )
 
-    # To be made a model in the future
-    tags = models.JSONField(default=list, null=True, blank=True)
+    tags = models.ManyToManyField(
+        "Tag",
+        blank=True,
+        related_name="factions",
+    )
+
     extra_data = models.JSONField(default=dict, null=True, blank=True)
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,
         related_name="owned_factions",
     )
 
@@ -150,14 +201,17 @@ class Item(ImageCleanupMixin, models.Model):
         help_text="e.g. common, rare, legendary, etc."
     )
 
-    tags = models.JSONField(default=list, null=True, blank=True)
+    tags = models.ManyToManyField(
+        "Tag",
+        blank=True,
+        related_name="items",
+    )
+
     extra_data = models.JSONField(default=dict, null=True, blank=True)
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,
         related_name="owned_items",
     )
 
@@ -225,14 +279,17 @@ class Character(ImageCleanupMixin, models.Model):
         related_name="holders",
     )
 
-    tags = models.JSONField(default=list, null=True, blank=True)
+    tags = models.ManyToManyField(
+        "Tag",
+        blank=True,
+        related_name="characters",
+    )
+
     extra_data = models.JSONField(default=dict, null=True, blank=True)
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,
         related_name="owned_characters",
     )
 
@@ -345,12 +402,15 @@ class Story(ImageCleanupMixin, models.Model):
         blank=True,
         related_name="stories"
     )
+    tags = models.ManyToManyField(
+        "Tag",
+        blank=True,
+        related_name="stories",
+    )
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,
         related_name="owned_stories",
     )
     created_at = models.DateTimeField(auto_now_add=True)

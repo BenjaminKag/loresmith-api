@@ -15,6 +15,7 @@ from core import models
 import os
 import shutil
 import tempfile
+import uuid
 from PIL import Image
 
 
@@ -26,8 +27,12 @@ def detail_url(location_id):
     return reverse("location-detail", args=[location_id])
 
 
-def create_user(**params):
-    return get_user_model().objects.create_user(**params)
+def create_user(email=None, password="testpass123", **extra):
+    """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
+
+    return get_user_model().objects.create_user(email, password, **extra)
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
@@ -400,3 +405,34 @@ class LocationApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         location.refresh_from_db()
         self.assertFalse(bool(location.image))
+
+    def test_filter_locations_by_tag(self):
+        """Filtering locations by tag returns matching locations only."""
+        tag_city = models.Tag.objects.create(
+            name="City",
+            owner=self.user,
+        )
+        tag_ruins = models.Tag.objects.create(
+            name="Ruins",
+            owner=self.user,
+        )
+
+        location1 = models.Location.objects.create(
+            name="Mondstadt",
+            location_type="city",
+            owner=self.user,
+        )
+        location2 = models.Location.objects.create(
+            name="Stormterror's Lair",
+            location_type="ruins",
+            owner=self.user,
+        )
+
+        location1.tags.add(tag_city)
+        location2.tags.add(tag_ruins)
+
+        res = self.client.get(LOCATIONS_URL, {"tags": "City"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["name"], "Mondstadt")

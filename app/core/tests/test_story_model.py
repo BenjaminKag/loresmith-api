@@ -8,15 +8,22 @@ from django.core.exceptions import ValidationError
 
 from core import models
 
+import uuid
 
-def create_user(email="test@example.com", password="testpass123", **extra):
+
+def create_user(email=None, password="testpass123", **extra):
     """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
 
     return get_user_model().objects.create_user(email, password, **extra)
 
 
 def create_story(**params):
     """Helper function to create a story."""
+    if "owner" not in params:
+        params["owner"] = create_user()
+
     defaults = {
         "title": "The Fall of Kharios",
         "summary": "A brief summary of the events.",
@@ -110,16 +117,27 @@ class StoryModelTests(TestCase):
         Characters, locations, factions and items can be
         linked to a story.
         """
-        character1 = models.Character.objects.create(name="Xiao")
-        character2 = models.Character.objects.create(name="Venti")
-        location1 = models.Location.objects.create(name="Liyue")
-        location2 = models.Location.objects.create(name="Mondstadt")
-        faction1 = models.Faction.objects.create(name="Adepti")
-        faction2 = models.Faction.objects.create(name="Archons")
-        item1 = models.Item.objects.create(name="Jade Winged Spear")
-        item2 = models.Item.objects.create(name="The Daybreak Chronicles")
+        user = create_user()
 
-        story = create_story(title="Xiao and Venti meeting")
+        character1 = models.Character.objects.create(name="Xiao", owner=user)
+        character2 = models.Character.objects.create(name="Venti", owner=user)
+        location1 = models.Location.objects.create(name="Liyue", owner=user)
+        location2 = models.Location.objects.create(
+            name="Mondstadt",
+            owner=user
+        )
+        faction1 = models.Faction.objects.create(name="Adepti", owner=user)
+        faction2 = models.Faction.objects.create(name="Archons", owner=user)
+        item1 = models.Item.objects.create(
+            name="Jade Winged Spear",
+            owner=user
+        )
+        item2 = models.Item.objects.create(
+            name="The Daybreak Chronicles",
+            owner=user
+        )
+
+        story = create_story(title="Xiao and Venti meeting", owner=user)
 
         story.characters.add(character1)
         story.characters.add(character2)

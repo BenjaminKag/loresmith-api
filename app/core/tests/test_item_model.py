@@ -1,19 +1,35 @@
 """
 Tests for Item model.
 """
+
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 import time
+import uuid
 
 from core import models
 
 
-def create_user(email="test@example.com", password="testpass123", **extra):
+def create_user(email=None, password="testpass123", **extra):
     """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
 
     return get_user_model().objects.create_user(email, password, **extra)
+
+
+def create_item(**params):
+    if "owner" not in params:
+        params["owner"] = create_user()
+
+    defaults = {
+        "name": "Default Item",
+    }
+    defaults.update(params)
+
+    return models.Item.objects.create(**defaults)
 
 
 class ItemModelTests(TestCase):
@@ -21,14 +37,14 @@ class ItemModelTests(TestCase):
 
     def test_string_representation(self):
         """__str__ should return the item name."""
-        item = models.Item.objects.create(
+        item = create_item(
             name="Jade Winged Spear",
         )
         self.assertEqual(str(item), "Jade Winged Spear")
 
     def test_item_with_basic_fields(self):
         """Test item creation with basic fields."""
-        item = models.Item.objects.create(
+        item = create_item(
             name="Jade Winged Spear",
             description="A spear that cuts through the air.",
             item_type="Polearm",
@@ -79,17 +95,6 @@ class ItemModelTests(TestCase):
         self.assertEqual(item.owner, user)
         self.assertIn(item, user.owned_items.all())
 
-    def test_item_tags_field(self):
-        """tags stores a list and defaults to empty list."""
-        item = models.Item.objects.create(
-            name="Anemo Vision",
-            tags=["anemo", "vision"],
-        )
-        self.assertEqual(item.tags, ["anemo", "vision"])
-
-        other = models.Item.objects.create(name="Geo Vision")
-        self.assertEqual(other.tags, [])
-
     def test_item_extra_data_field(self):
         """extra_data defaults to {} and can store arbitrary dict."""
         data = {
@@ -98,19 +103,19 @@ class ItemModelTests(TestCase):
             "notes": {"polearm": True},
         }
 
-        item = models.Item.objects.create(
+        item = create_item(
             name="Jade Winged Spear",
             extra_data=data,
         )
         self.assertEqual(item.extra_data, data)
 
-        other = models.Item.objects.create(name="Favonius Lance")
+        other = create_item(name="Favonius Lance")
         self.assertEqual(other.extra_data, {})
 
     def test_item_timestamps_set_on_create(self):
         """created_at and updated_at are set when item is created."""
         before = timezone.now()
-        item = models.Item.objects.create(name="Jade Winged Spear")
+        item = create_item(name="Jade Winged Spear")
         after = timezone.now()
 
         self.assertIsNotNone(item.created_at)
@@ -120,7 +125,7 @@ class ItemModelTests(TestCase):
 
     def test_item_updated_at_changes_on_save(self):
         """updated_at should change when the item is saved again."""
-        item = models.Item.objects.create(name="Jade Winged Spear")
+        item = create_item(name="Jade Winged Spear")
         original_updated = item.updated_at
 
         time.sleep(0.01)
@@ -131,9 +136,9 @@ class ItemModelTests(TestCase):
 
     def test_item_default_ordering_by_name(self):
         """Items should be ordered by name by default (Meta.ordering)."""
-        models.Item.objects.create(name="Iron Sting")
-        models.Item.objects.create(name="Prototype Starglitter")
-        models.Item.objects.create(name="Dull Blade")
+        create_item(name="Iron Sting")
+        create_item(name="Prototype Starglitter")
+        create_item(name="Dull Blade")
 
         names = list(
             models.Item.objects.values_list("name", flat=True)

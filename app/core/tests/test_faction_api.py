@@ -15,6 +15,7 @@ from core import models
 import os
 import shutil
 import tempfile
+import uuid
 from PIL import Image
 
 
@@ -26,8 +27,12 @@ def detail_url(faction_id: int):
     return reverse("faction-detail", args=[faction_id])
 
 
-def create_user(**params):
-    return get_user_model().objects.create_user(**params)
+def create_user(email=None, password="testpass123", **extra):
+    """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
+
+    return get_user_model().objects.create_user(email, password, **extra)
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
@@ -83,6 +88,7 @@ class FactionApiTests(APITestCase):
             name="Mondstadt",
             description="City of freedom.",
             location_type="city",
+            owner=self.user,
         )
         payload = {
             "name": "Church of Favonius",
@@ -461,3 +467,32 @@ class FactionApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         faction.refresh_from_db()
         self.assertFalse(bool(faction.image))
+
+    def test_filter_factions_by_tag(self):
+        """Filtering factions by tag returns matching factions only."""
+        tag_religion = models.Tag.objects.create(
+            name="Religion",
+            owner=self.user,
+        )
+        tag_military = models.Tag.objects.create(
+            name="Military",
+            owner=self.user,
+        )
+
+        faction1 = models.Faction.objects.create(
+            name="Church of Favonius",
+            owner=self.user,
+        )
+        faction2 = models.Faction.objects.create(
+            name="Knights of Favonius",
+            owner=self.user,
+        )
+
+        faction1.tags.add(tag_religion)
+        faction2.tags.add(tag_military)
+
+        res = self.client.get(FACTIONS_URL, {"tags": "Religion"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["name"], "Church of Favonius")

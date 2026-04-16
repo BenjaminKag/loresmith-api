@@ -15,6 +15,7 @@ from core import models
 import os
 import shutil
 import tempfile
+import uuid
 from PIL import Image
 
 
@@ -26,9 +27,12 @@ def detail_url(item_id: int):
     return reverse("item-detail", args=[item_id])
 
 
-def create_user(**params):
-    """Helper to create a user."""
-    return get_user_model().objects.create_user(**params)
+def create_user(email=None, password="testpass123", **extra):
+    """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
+
+    return get_user_model().objects.create_user(email, password, **extra)
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
@@ -450,3 +454,32 @@ class ItemApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         item.refresh_from_db()
         self.assertFalse(bool(item.image))
+
+    def test_filter_items_by_tag(self):
+        """Filtering items by tag returns matching items only."""
+        tag_weapon = models.Tag.objects.create(
+            name="Weapon",
+            owner=self.user,
+        )
+        tag_artifact = models.Tag.objects.create(
+            name="Artifact",
+            owner=self.user,
+        )
+
+        item1 = models.Item.objects.create(
+            name="Sword",
+            owner=self.user,
+        )
+        item2 = models.Item.objects.create(
+            name="Crown",
+            owner=self.user,
+        )
+
+        item1.tags.add(tag_weapon)
+        item2.tags.add(tag_artifact)
+
+        res = self.client.get(ITEMS_URL, {"tags": "Weapon"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["name"], "Sword")

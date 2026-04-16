@@ -4,9 +4,51 @@ Serializers for core models.
 
 from rest_framework import serializers
 from . import models
+from core.mixins import TagNamesMixin
 
 
-class LocationSerializer(serializers.ModelSerializer):
+class TagSerializer(serializers.ModelSerializer):
+    """Serializer for Tag model."""
+
+    class Meta:
+        model = models.Tag
+        fields = ("id", "name", "created_at", "updated_at")
+        read_only_fields = ("id", "created_at", "updated_at")
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data["owner"] = request.user
+        return super().create(validated_data)
+
+    def validate_name(self, value):
+        """Ensure tag name is unique per user."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if not user or not user.is_authenticated:
+            return value
+
+        # normalize once
+        normalized_name = value.title()
+
+        queryset = models.Tag.objects.filter(
+            owner=user,
+            name=normalized_name,
+        )
+
+        if self.instance:
+            queryset = queryset.exclude(id=self.instance.id)
+
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "You already have a tag with this name."
+            )
+
+        return normalized_name
+
+
+class LocationSerializer(TagNamesMixin, serializers.ModelSerializer):
     """Serializer for Location model."""
     image = serializers.ImageField(
         use_url=True,
@@ -20,13 +62,31 @@ class LocationSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at", "owner")
 
     def create(self, validated_data):
+        tags = validated_data.pop("tags", [])
+
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
             validated_data["owner"] = request.user
-        return super().create(validated_data)
+
+        instance = super().create(validated_data)
+
+        if tags:
+            self._replace_tags(instance, tags)
+
+        return instance
+
+    def update(self, instance, validated_data):
+        tags = validated_data.pop("tags", None)
+
+        instance = super().update(instance, validated_data)
+
+        if tags is not None:
+            self._replace_tags(instance, tags)
+
+        return instance
 
 
-class FactionSerializer(serializers.ModelSerializer):
+class FactionSerializer(TagNamesMixin, serializers.ModelSerializer):
     """Serializer for Faction model."""
     image = serializers.ImageField(
         use_url=True,
@@ -40,13 +100,31 @@ class FactionSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at", "owner")
 
     def create(self, validated_data):
+        tags = validated_data.pop("tags", [])
+
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
             validated_data["owner"] = request.user
-        return super().create(validated_data)
+
+        instance = super().create(validated_data)
+
+        if tags:
+            self._replace_tags(instance, tags)
+
+        return instance
+
+    def update(self, instance, validated_data):
+        tags = validated_data.pop("tags", None)
+
+        instance = super().update(instance, validated_data)
+
+        if tags is not None:
+            self._replace_tags(instance, tags)
+
+        return instance
 
 
-class ItemSerializer(serializers.ModelSerializer):
+class ItemSerializer(TagNamesMixin, serializers.ModelSerializer):
     """Serializer for Item model."""
     image = serializers.ImageField(
         use_url=True,
@@ -60,13 +138,31 @@ class ItemSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at", "owner")
 
     def create(self, validated_data):
+        tags = validated_data.pop("tags", [])
+
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
             validated_data["owner"] = request.user
-        return super().create(validated_data)
+
+        instance = super().create(validated_data)
+
+        if tags:
+            self._replace_tags(instance, tags)
+
+        return instance
+
+    def update(self, instance, validated_data):
+        tags = validated_data.pop("tags", None)
+
+        instance = super().update(instance, validated_data)
+
+        if tags is not None:
+            self._replace_tags(instance, tags)
+
+        return instance
 
 
-class CharacterSerializer(serializers.ModelSerializer):
+class CharacterSerializer(TagNamesMixin, serializers.ModelSerializer):
     """Serializer for Character model."""
     image = serializers.ImageField(
         use_url=True,
@@ -80,10 +176,28 @@ class CharacterSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at", "owner")
 
     def create(self, validated_data):
+        tags = validated_data.pop("tags", [])
+
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
             validated_data["owner"] = request.user
-        return super().create(validated_data)
+
+        instance = super().create(validated_data)
+
+        if tags:
+            self._replace_tags(instance, tags)
+
+        return instance
+
+    def update(self, instance, validated_data):
+        tags = validated_data.pop("tags", None)
+
+        instance = super().update(instance, validated_data)
+
+        if tags is not None:
+            self._replace_tags(instance, tags)
+
+        return instance
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -117,7 +231,7 @@ class CharacterSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class StorySerializer(serializers.ModelSerializer):
+class StorySerializer(TagNamesMixin, serializers.ModelSerializer):
     """Serializer for Story model."""
     image = serializers.ImageField(
         use_url=True,
@@ -137,10 +251,28 @@ class StorySerializer(serializers.ModelSerializer):
         )
 
     def create(self, validated_data):
+        tags = validated_data.pop("tags", [])
+
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
             validated_data["owner"] = request.user
-        return super().create(validated_data)
+
+        instance = super().create(validated_data)
+
+        if tags:
+            self._replace_tags(instance, tags)
+
+        return instance
+
+    def update(self, instance, validated_data):
+        tags = validated_data.pop("tags", None)
+
+        instance = super().update(instance, validated_data)
+
+        if tags is not None:
+            self._replace_tags(instance, tags)
+
+        return instance
 
     def validate(self, attrs):
         kind = attrs.get("kind", getattr(self.instance, "kind", None))

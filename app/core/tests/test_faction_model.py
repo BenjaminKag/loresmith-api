@@ -7,14 +7,29 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 import time
+import uuid
 
 from core import models
 
 
-def create_user(email="test@example.com", password="testpass123", **extra):
+def create_user(email=None, password="testpass123", **extra):
     """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
 
     return get_user_model().objects.create_user(email, password, **extra)
+
+
+def create_faction(**params):
+    if "owner" not in params:
+        params["owner"] = create_user()
+
+    defaults = {
+        "name": "Default Faction",
+    }
+    defaults.update(params)
+
+    return models.Faction.objects.create(**defaults)
 
 
 class FactionModelTests(TestCase):
@@ -22,14 +37,14 @@ class FactionModelTests(TestCase):
 
     def test_string_representation(self):
         """__str__ should return the faction name."""
-        faction = models.Faction.objects.create(
+        faction = create_faction(
             name="Knights of Favonius",
         )
         self.assertEqual(str(faction), "Knights of Favonius")
 
     def test_faction_with_basic_fields(self):
         """Test faction creation with basic fields."""
-        faction = models.Faction.objects.create(
+        faction = create_faction(
             name="Knights of Favonius",
             description="Protectors of Mondstadt.",
             faction_type="guild",
@@ -41,14 +56,17 @@ class FactionModelTests(TestCase):
 
     def test_faction_with_location(self):
         """Test faction creation with associated location."""
+        user = create_user()
         city = models.Location.objects.create(
             name="Mondstadt",
             location_type="city",
+            owner=user,
         )
 
         faction = models.Faction.objects.create(
             name="Knights of Favonius",
             location=city,
+            owner=user,
         )
 
         self.assertEqual(faction.location, city)
@@ -56,7 +74,7 @@ class FactionModelTests(TestCase):
 
     def test_faction_without_location_is_allowed(self):
         """Faction can be created without a location."""
-        faction = models.Faction.objects.create(
+        faction = create_faction(
             name="Hexenzirkel",
         )
         self.assertIsNone(faction.location)
@@ -64,24 +82,13 @@ class FactionModelTests(TestCase):
     def test_faction_owner_user(self):
         """Test that faction has owner field set correctly."""
         user = create_user()
-        faction = models.Faction.objects.create(
+        faction = create_faction(
             name="Adepti",
             owner=user,
         )
 
         self.assertEqual(faction.owner, user)
         self.assertIn(faction, user.owned_factions.all())
-
-    def test_faction_tags_field(self):
-        """tags stores a list and defaults to empty list."""
-        faction = models.Faction.objects.create(
-            name="Harbingers",
-            tags=["Delusions", "Fatui"],
-        )
-        self.assertEqual(faction.tags, ["Delusions", "Fatui"])
-
-        other = models.Faction.objects.create(name="Liyue Qixing")
-        self.assertEqual(other.tags, [])
 
     def test_faction_extra_data_field(self):
         """extra_data defaults to {} and can store arbitrary dict."""
@@ -91,19 +98,19 @@ class FactionModelTests(TestCase):
             "notes": {"archon_related": True},
         }
 
-        faction = models.Faction.objects.create(
+        faction = create_faction(
             name="Liyue Qixing",
             extra_data=data,
         )
         self.assertEqual(faction.extra_data, data)
 
-        other = models.Faction.objects.create(name="Knights of Favonius")
+        other = create_faction(name="Knights of Favonius")
         self.assertEqual(other.extra_data, {})
 
     def test_faction_timestamps_set_on_create(self):
         """created_at and updated_at are set when faction is created."""
         before = timezone.now()
-        faction = models.Faction.objects.create(name="Knights of Favonius")
+        faction = create_faction(name="Knights of Favonius")
         after = timezone.now()
 
         self.assertIsNotNone(faction.created_at)
@@ -113,7 +120,7 @@ class FactionModelTests(TestCase):
 
     def test_faction_updated_at_changes_on_save(self):
         """updated_at should change when the faction is saved again."""
-        faction = models.Faction.objects.create(name="Knights of Favonius")
+        faction = create_faction(name="Knights of Favonius")
         original_updated = faction.updated_at
 
         time.sleep(0.01)
@@ -124,9 +131,9 @@ class FactionModelTests(TestCase):
 
     def test_faction_default_ordering_by_name(self):
         """Factions should be ordered by name by default (Meta.ordering)."""
-        models.Faction.objects.create(name="Liyue Qixing")
-        models.Faction.objects.create(name="Fatui")
-        models.Faction.objects.create(name="Knights of Favonius")
+        create_faction(name="Liyue Qixing")
+        create_faction(name="Fatui")
+        create_faction(name="Knights of Favonius")
 
         names = list(
             models.Faction.objects.values_list("name", flat=True)

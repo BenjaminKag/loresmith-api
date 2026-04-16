@@ -15,6 +15,7 @@ from core import models
 import os
 import shutil
 import tempfile
+import uuid
 from PIL import Image
 
 
@@ -26,9 +27,12 @@ def detail_url(story_id: int):
     return reverse("story-detail", args=[story_id])
 
 
-def create_user(**params):
-    """Helper to create a user."""
-    return get_user_model().objects.create_user(**params)
+def create_user(email=None, password="testpass123", **extra):
+    """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
+
+    return get_user_model().objects.create_user(email, password, **extra)
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
@@ -262,6 +266,7 @@ class StoryApiTests(APITestCase):
         parent = models.Story.objects.create(
             title="Root Story",
             kind=models.Story.Kind.STORY,
+            owner=self.user,
         )
 
         payload = {
@@ -280,6 +285,7 @@ class StoryApiTests(APITestCase):
         standalone = models.Story.objects.create(
             title="Standalone Story",
             kind=models.Story.Kind.STANDALONE,
+            owner=self.user,
         )
 
         payload = {
@@ -521,3 +527,32 @@ class StoryApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         story.refresh_from_db()
         self.assertFalse(bool(story.image))
+
+    def test_filter_stories_by_tag(self):
+        """Filtering stories by tag returns matching stories only."""
+        tag_myth = models.Tag.objects.create(
+            name="Myth",
+            owner=self.user,
+        )
+        tag_quest = models.Tag.objects.create(
+            name="Quest",
+            owner=self.user,
+        )
+
+        story1 = models.Story.objects.create(
+            title="Archon War",
+            owner=self.user,
+        )
+        story2 = models.Story.objects.create(
+            title="Rite of Descension",
+            owner=self.user,
+        )
+
+        story1.tags.add(tag_myth)
+        story2.tags.add(tag_quest)
+
+        res = self.client.get(STORIES_URL, {"tags": "Myth"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["title"], "Archon War")

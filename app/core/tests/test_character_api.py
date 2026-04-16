@@ -15,6 +15,7 @@ from core import models
 import os
 import shutil
 import tempfile
+import uuid
 from PIL import Image
 
 
@@ -26,9 +27,12 @@ def detail_url(character_id: int):
     return reverse("character-detail", args=[character_id])
 
 
-def create_user(**params):
-    """Helper to create a user."""
-    return get_user_model().objects.create_user(**params)
+def create_user(email=None, password="testpass123", **extra):
+    """Helper function to create a new user."""
+    if email is None:
+        email = f"test_{uuid.uuid4().hex}@example.com"
+
+    return get_user_model().objects.create_user(email, password, **extra)
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
@@ -513,3 +517,184 @@ class CharacterApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         character.refresh_from_db()
         self.assertFalse(bool(character.image))
+
+    def test_filter_characters_by_single_tag(self):
+        """Filtering by one tag returns matching characters only."""
+        tag_anemo = models.Tag.objects.create(name="Anemo", owner=self.user)
+        tag_geo = models.Tag.objects.create(name="Geo", owner=self.user)
+
+        char1 = models.Character.objects.create(
+            name="Xiao",
+            owner=self.user,
+        )
+        char2 = models.Character.objects.create(
+            name="Albedo",
+            owner=self.user,
+        )
+        char3 = models.Character.objects.create(
+            name="Venti",
+            owner=self.user,
+        )
+
+        char1.tags.add(tag_anemo)
+        char2.tags.add(tag_geo)
+        char3.tags.add(tag_anemo, tag_geo)
+
+        res = self.client.get(CHARACTERS_URL, {"tags": "Anemo"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(
+            [c["name"] for c in res.data],
+            ["Xiao", "Venti"],
+        )
+
+    def test_filter_characters_by_multiple_tags_and_logic(self):
+        """Filtering by multiple tags should use AND logic."""
+        tag_anemo = models.Tag.objects.create(name="Anemo", owner=self.user)
+        tag_yaksha = models.Tag.objects.create(name="Yaksha", owner=self.user)
+
+        char1 = models.Character.objects.create(
+            name="Xiao",
+            owner=self.user,
+        )
+        char2 = models.Character.objects.create(
+            name="Venti",
+            owner=self.user,
+        )
+        char3 = models.Character.objects.create(
+            name="Bosacius",
+            owner=self.user,
+        )
+
+        char1.tags.add(tag_anemo, tag_yaksha)
+        char2.tags.add(tag_anemo)
+        char3.tags.add(tag_yaksha)
+
+        res = self.client.get(CHARACTERS_URL, {"tags": "Anemo,Yaksha"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["name"], "Xiao")
+
+    def test_filter_characters_by_tags_is_case_insensitive(self):
+        """Filtering by tags should be case-insensitive."""
+        tag_anemo = models.Tag.objects.create(name="Anemo", owner=self.user)
+
+        char = models.Character.objects.create(
+            name="Xiao",
+            owner=self.user,
+        )
+        char.tags.add(tag_anemo)
+
+        res = self.client.get(CHARACTERS_URL, {"tags": "anemo"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["name"], "Xiao")
+
+    def test_filter_characters_by_tags_with_no_matches_returns_empty(self):
+        """Filtering by tags with no matches should return an empty list."""
+        tag_anemo = models.Tag.objects.create(name="Anemo", owner=self.user)
+
+        char = models.Character.objects.create(
+            name="Xiao",
+            owner=self.user,
+        )
+        char.tags.add(tag_anemo)
+
+        res = self.client.get(CHARACTERS_URL, {"tags": "Pyro"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, [])
+
+    def test_filter_characters_respects_visibility_and_ownership(self):
+        """Filtering should still respect ownership and public story rules."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+
+        my_tag = models.Tag.objects.create(name="Anemo", owner=self.user)
+        other_tag = models.Tag.objects.create(name="Anemo", owner=other_user)
+
+        my_character = models.Character.objects.create(
+            name="My Character",
+            owner=self.user,
+        )
+        public_character = models.Character.objects.create(
+            name="Public Character",
+            owner=other_user,
+        )
+        private_character = models.Character.objects.create(
+            name="Private Character",
+            owner=other_user,
+        )
+
+        my_character.tags.add(my_tag)
+        public_character.tags.add(other_tag)
+        private_character.tags.add(other_tag)
+
+        public_story = models.Story.objects.create(
+            title="Public Story",
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=other_user,
+        )
+        private_story = models.Story.objects.create(
+            title="Private Story",
+            visibility=models.Story.Visibility.PRIVATE,
+            owner=other_user,
+        )
+
+        public_story.characters.add(public_character)
+        private_story.characters.add(private_character)
+
+        res = self.client.get(CHARACTERS_URL, {"tags": "Anemo"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(
+            [c["name"] for c in res.data],
+            ["My Character", "Public Character"],
+        )
+
+    def test_anonymous_filter_characters_by_tag_only_returns_public(self):
+        """Anonymous filtering only returns characters in public stories."""
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123",
+        )
+
+        public_tag = models.Tag.objects.create(name="Anemo", owner=other_user)
+
+        public_character = models.Character.objects.create(
+            name="Public Character",
+            owner=other_user,
+        )
+        private_character = models.Character.objects.create(
+            name="Private Character",
+            owner=other_user,
+        )
+
+        public_character.tags.add(public_tag)
+        private_character.tags.add(public_tag)
+
+        public_story = models.Story.objects.create(
+            title="Public Story",
+            visibility=models.Story.Visibility.PUBLIC,
+            owner=other_user,
+        )
+        private_story = models.Story.objects.create(
+            title="Private Story",
+            visibility=models.Story.Visibility.PRIVATE,
+            owner=other_user,
+        )
+
+        public_story.characters.add(public_character)
+        private_story.characters.add(private_character)
+
+        self.client.force_authenticate(None)
+
+        res = self.client.get(CHARACTERS_URL, {"tags": "Anemo"})
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["name"], "Public Character")

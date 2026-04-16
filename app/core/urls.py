@@ -12,5 +12,6 @@ router.register("factions", views.FactionViewSet, basename="faction")
 router.register("items", views.ItemViewSet, basename="item")
 router.register("characters", views.CharacterViewSet, basename="character")
 router.register("stories", views.StoryViewSet, basename="story")
+router.register("tags", views.TagViewSet, basename="tag")
 
 urlpatterns = router.urls
