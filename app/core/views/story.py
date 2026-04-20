@@ -10,10 +10,18 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 
 from core import models, serializers
 from core.mixins import TagFilterMixin
 from core.permissions import IsOwnerOrReadOnly
+
+from core.utils import (
+    get_visible_story_subtree,
+    build_story_child_map,
+    get_story_wiki_entities,
+    get_story_wiki_metadata,
+)
 
 from drf_spectacular.utils import (
     extend_schema,
@@ -174,6 +182,7 @@ class StoryViewSet(TagFilterMixin, viewsets.ModelViewSet):
                 "factions",
                 "items",
                 "tags",
+                "sub_stories",
             )
         )
 
@@ -190,3 +199,243 @@ class StoryViewSet(TagFilterMixin, viewsets.ModelViewSet):
             ).distinct()
 
         return self.apply_tag_filters(queryset)
+
+    @extend_schema(
+        tags=["Story Wikis"],
+        summary="Get story wiki overview",
+    )
+    @action(detail=True, methods=["get"])
+    def wiki(self, request, pk=None):
+        """Return wiki data for a story subtree."""
+        story = self.get_object()
+
+        if story.kind == models.Story.Kind.PART:
+            return Response(
+                {
+                    "detail": (
+                        "Wiki is only available for STORY "
+                        "or STANDALONE stories."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        stories = get_visible_story_subtree(story, request.user)
+        story_child_map = build_story_child_map(stories)
+        wiki_entities = get_story_wiki_entities(stories)
+        metadata = get_story_wiki_metadata(story, stories, wiki_entities)
+
+        serializer_context = self.get_serializer_context()
+        serializer_context["story_child_map"] = story_child_map
+
+        aggregated = {
+            "characters": serializers.WikiCharacterSerializer(
+                wiki_entities["characters"],
+                many=True,
+                context=serializer_context,
+            ).data,
+            "items": serializers.WikiItemSerializer(
+                wiki_entities["items"],
+                many=True,
+                context=serializer_context,
+            ).data,
+            "locations": serializers.WikiLocationSerializer(
+                wiki_entities["locations"],
+                many=True,
+                context=serializer_context,
+            ).data,
+            "factions": serializers.WikiFactionSerializer(
+                wiki_entities["factions"],
+                many=True,
+                context=serializer_context,
+            ).data,
+        }
+
+        tree = serializers.StoryWikiTreeSerializer(
+            story,
+            context=serializer_context,
+        ).data
+
+        return Response(
+            {
+                "story": metadata,
+                "aggregated": aggregated,
+                "tree": tree,
+            }
+        )
+
+    @extend_schema(
+        tags=["Story Wikis"],
+        summary="Get character wiki page",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"wiki/characters/(?P<character_id>[^/.]+)",
+    )
+    def wiki_character(self, request, pk=None, character_id=None):
+        """Return character wiki data within a story subtree context."""
+        story = self.get_object()
+
+        if story.kind == models.Story.Kind.PART:
+            return Response(
+                {
+                    "detail": (
+                        "Wiki is only available for STORY "
+                        "or STANDALONE stories."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        visible_stories = get_visible_story_subtree(story, request.user)
+        visible_story_ids = {
+            visible_story.id for visible_story in visible_stories
+        }
+
+        character = get_object_or_404(models.Character, id=character_id)
+
+        if not character.stories.filter(id__in=visible_story_ids).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer_context = self.get_serializer_context()
+        serializer_context["visible_stories"] = visible_stories
+
+        serializer = serializers.CharacterWikiDetailSerializer(
+            character,
+            context=serializer_context,
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        tags=["Story Wikis"],
+        summary="Get location wiki page",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"wiki/locations/(?P<location_id>[^/.]+)",
+    )
+    def wiki_location(self, request, pk=None, location_id=None):
+        """Return location wiki data within a story subtree context."""
+        story = self.get_object()
+
+        if story.kind == models.Story.Kind.PART:
+            return Response(
+                {
+                    "detail": (
+                        "Wiki is only available for STORY "
+                        "or STANDALONE stories."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        visible_stories = get_visible_story_subtree(story, request.user)
+        visible_story_ids = {
+            visible_story.id for visible_story in visible_stories
+        }
+
+        location = get_object_or_404(models.Location, id=location_id)
+
+        if not location.stories.filter(id__in=visible_story_ids).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer_context = self.get_serializer_context()
+        serializer_context["visible_stories"] = visible_stories
+
+        serializer = serializers.LocationWikiDetailSerializer(
+            location,
+            context=serializer_context,
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        tags=["Story Wikis"],
+        summary="Get item wiki page",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"wiki/items/(?P<item_id>[^/.]+)",
+    )
+    def wiki_item(self, request, pk=None, item_id=None):
+        """Return item wiki data within a story subtree context."""
+        story = self.get_object()
+
+        if story.kind == models.Story.Kind.PART:
+            return Response(
+                {
+                    "detail": (
+                        "Wiki is only available for STORY "
+                        "or STANDALONE stories."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        visible_stories = get_visible_story_subtree(story, request.user)
+        visible_story_ids = {
+            visible_story.id for visible_story in visible_stories
+        }
+
+        item = get_object_or_404(models.Item, id=item_id)
+
+        if not item.stories.filter(id__in=visible_story_ids).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer_context = self.get_serializer_context()
+        serializer_context["visible_stories"] = visible_stories
+
+        serializer = serializers.ItemWikiDetailSerializer(
+            item,
+            context=serializer_context,
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        tags=["Story Wikis"],
+        summary="Get faction wiki page",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"wiki/factions/(?P<faction_id>[^/.]+)",
+    )
+    def wiki_faction(self, request, pk=None, faction_id=None):
+        """Return faction wiki data within a story subtree context."""
+        story = self.get_object()
+
+        if story.kind == models.Story.Kind.PART:
+            return Response(
+                {
+                    "detail": (
+                        "Wiki is only available for STORY "
+                        "or STANDALONE stories."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        visible_stories = get_visible_story_subtree(story, request.user)
+        visible_story_ids = {
+            visible_story.id for visible_story in visible_stories
+        }
+
+        faction = get_object_or_404(models.Faction, id=faction_id)
+
+        if not faction.stories.filter(id__in=visible_story_ids).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer_context = self.get_serializer_context()
+        serializer_context["visible_stories"] = visible_stories
+
+        serializer = serializers.FactionWikiDetailSerializer(
+            faction,
+            context=serializer_context,
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)

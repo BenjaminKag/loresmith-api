@@ -3,7 +3,7 @@ Serializers for core models.
 """
 
 from rest_framework import serializers
-from . import models
+from . import models, utils
 from core.mixins import TagNamesMixin
 
 
@@ -385,3 +385,243 @@ class StoryAIAnalysisSerializer(serializers.Serializer):
     suggestions = serializers.ListField(child=serializers.CharField())
 
     meta = StoryAIAnalysisMetaSerializer()
+
+
+# Wiki serializers
+
+class WikiCharacterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Character
+        fields = ["id", "name"]
+        read_only_fields = fields
+
+
+class WikiItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Item
+        fields = ["id", "name"]
+        read_only_fields = fields
+
+
+class WikiLocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Location
+        fields = ["id", "name"]
+        read_only_fields = fields
+
+
+class WikiFactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Faction
+        fields = ["id", "name"]
+        read_only_fields = fields
+
+
+class StoryWikiTreeSerializer(serializers.ModelSerializer):
+    """Recursive serializer for story wiki tree nodes."""
+
+    characters = WikiCharacterSerializer(many=True, read_only=True)
+    items = WikiItemSerializer(many=True, read_only=True)
+    locations = WikiLocationSerializer(many=True, read_only=True)
+    factions = WikiFactionSerializer(many=True, read_only=True)
+    children = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.Story
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "kind",
+            "order",
+            "characters",
+            "items",
+            "locations",
+            "factions",
+            "children",
+        ]
+        read_only_fields = fields
+
+    def get_children(self, obj):
+        child_map = self.context.get("story_child_map")
+
+        if child_map is not None:
+            children = child_map.get(obj.id, [])
+        else:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+
+            children = [
+                child for child in obj.sub_stories.all().order_by("order")
+                if utils.is_story_visible_to_user(child, user)
+            ]
+
+        return StoryWikiTreeSerializer(
+            children,
+            many=True,
+            context=self.context,
+        ).data
+
+
+class WikiStoryReferenceSerializer(serializers.ModelSerializer):
+    """Minimal story reference for wiki detail pages."""
+
+    class Meta:
+        model = models.Story
+        fields = ["id", "title"]
+        read_only_fields = fields
+
+
+class CharacterWikiDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for character wiki pages."""
+
+    tags = serializers.SlugRelatedField(
+        many=True,
+        read_only=True,
+        slug_field="name",
+    )
+    stories = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.Character
+        fields = [
+            "id",
+            "name",
+            "description",
+            "image",
+            "age",
+            "species",
+            "gender",
+            "tags",
+            "stories",
+        ]
+        read_only_fields = fields
+
+    def get_stories(self, obj):
+        visible_stories = self.context.get("visible_stories", [])
+        visible_story_ids = {story.id for story in visible_stories}
+
+        stories = obj.stories.filter(
+            id__in=visible_story_ids
+        ).order_by("order")
+
+        return WikiStoryReferenceSerializer(
+            stories,
+            many=True,
+            context=self.context,
+        ).data
+
+
+class LocationWikiDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for location wiki pages."""
+
+    tags = serializers.SlugRelatedField(
+        many=True,
+        read_only=True,
+        slug_field="name",
+    )
+    stories = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.Location
+        fields = [
+            "id",
+            "name",
+            "description",
+            "image",
+            "location_type",
+            "tags",
+            "stories",
+        ]
+        read_only_fields = fields
+
+    def get_stories(self, obj):
+        visible_stories = self.context.get("visible_stories", [])
+        visible_story_ids = {story.id for story in visible_stories}
+
+        stories = obj.stories.filter(
+            id__in=visible_story_ids
+        ).order_by("order")
+
+        return WikiStoryReferenceSerializer(
+            stories,
+            many=True,
+            context=self.context,
+        ).data
+
+
+class ItemWikiDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for item wiki pages."""
+
+    tags = serializers.SlugRelatedField(
+        many=True,
+        read_only=True,
+        slug_field="name",
+    )
+    stories = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.Item
+        fields = [
+            "id",
+            "name",
+            "description",
+            "image",
+            "item_type",
+            "rarity",
+            "tags",
+            "stories",
+        ]
+        read_only_fields = fields
+
+    def get_stories(self, obj):
+        visible_stories = self.context.get("visible_stories", [])
+        visible_story_ids = {story.id for story in visible_stories}
+
+        stories = obj.stories.filter(
+            id__in=visible_story_ids
+        ).order_by("order")
+
+        return WikiStoryReferenceSerializer(
+            stories,
+            many=True,
+            context=self.context,
+        ).data
+
+
+class FactionWikiDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for faction wiki pages."""
+
+    tags = serializers.SlugRelatedField(
+        many=True,
+        read_only=True,
+        slug_field="name",
+    )
+    stories = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.Faction
+        fields = [
+            "id",
+            "name",
+            "description",
+            "image",
+            "faction_type",
+            "tags",
+            "stories",
+        ]
+        read_only_fields = fields
+
+    def get_stories(self, obj):
+        visible_stories = self.context.get("visible_stories", [])
+        visible_story_ids = {story.id for story in visible_stories}
+
+        stories = obj.stories.filter(
+            id__in=visible_story_ids
+        ).order_by("order")
+
+        return WikiStoryReferenceSerializer(
+            stories,
+            many=True,
+            context=self.context,
+        ).data

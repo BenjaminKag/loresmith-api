@@ -35,6 +35,15 @@ def create_user(email=None, password="testpass123", **extra):
     return get_user_model().objects.create_user(email, password, **extra)
 
 
+def create_story(owner, **params):
+    defaults = {
+        "title": f"Test story {uuid.uuid4().hex}",
+        "owner": owner,
+    }
+    defaults.update(params)
+    return models.Story.objects.create(**defaults)
+
+
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
 class StoryApiTests(APITestCase):
     """Tests for the Story API."""
@@ -556,3 +565,1355 @@ class StoryApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res.data), 1)
         self.assertEqual(res.data[0]["title"], "Archon War")
+
+
+class StoryWikiApiTests(APITestCase):
+    """Tests for the Story Wiki API endpoint."""
+
+    def test_wiki_returns_data_for_story_root(self):
+        user = create_user(email="user@example.com", password="testpass123")
+        self.client.force_authenticate(user)
+
+        story = create_story(owner=user, kind=models.Story.Kind.STORY)
+
+        url = detail_url(story.id) + "wiki/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("story", res.data)
+        self.assertIn("aggregated", res.data)
+        self.assertIn("tree", res.data)
+
+    def test_wiki_returns_data_for_standalone_root(self):
+        user = create_user(email="user@example.com", password="testpass123")
+        self.client.force_authenticate(user)
+
+        story = create_story(owner=user, kind=models.Story.Kind.STANDALONE)
+
+        url = detail_url(story.id) + "wiki/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["story"]["part_count"], 0)
+        self.assertEqual(res.data["tree"]["children"], [])
+
+    def test_wiki_returns_400_for_part_root(self):
+        user = create_user(email="user@example.com", password="testpass123")
+        self.client.force_authenticate(user)
+
+        root = create_story(owner=user, kind=models.Story.Kind.STORY)
+        part = create_story(
+            owner=user,
+            kind=models.Story.Kind.PART,
+            parent=root,
+        )
+
+        url = detail_url(part.id) + "wiki/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            res.data["detail"],
+            "Wiki is only available for STORY or STANDALONE stories."
+        )
+
+    def test_wiki_aggregated_characters_are_deduplicated(self):
+        user = create_user(email="user@example.com", password="testpass123")
+        self.client.force_authenticate(user)
+
+        root = create_story(
+            owner=user,
+            title="Root",
+            kind=models.Story.Kind.STORY
+        )
+        child = create_story(
+            owner=user,
+            title="Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+        )
+        character = models.Character.objects.create(
+            owner=user,
+            name="Hero"
+        )
+
+        root.characters.add(character)
+        child.characters.add(character)
+
+        url = detail_url(root.id) + "wiki/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data["aggregated"]["characters"]), 1)
+        self.assertEqual(
+            res.data["aggregated"]["characters"][0]["id"],
+            character.id,
+        )
+
+    def test_wiki_tree_shows_direct_characters_per_node(self):
+        user = create_user(email="user@example.com", password="testpass123")
+        self.client.force_authenticate(user)
+
+        root = create_story(
+            owner=user,
+            title="Root",
+            kind=models.Story.Kind.STORY
+        )
+        child = create_story(
+            owner=user,
+            title="Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+        )
+
+        root_character = models.Character.objects.create(
+            owner=user,
+            name="Root Hero"
+        )
+        child_character = models.Character.objects.create(
+            owner=user,
+            name="Child Hero"
+        )
+
+        root.characters.add(root_character)
+        child.characters.add(child_character)
+
+        url = detail_url(root.id) + "wiki/"
+        res = self.client.get(url)
+
+        tree = res.data["tree"]
+        child_tree = tree["children"][0]
+
+        self.assertEqual(len(tree["characters"]), 1)
+        self.assertEqual(tree["characters"][0]["id"], root_character.id)
+
+        self.assertEqual(len(child_tree["characters"]), 1)
+        self.assertEqual(child_tree["characters"][0]["id"], child_character.id)
+
+    def test_wiki_tree_children_are_ordered(self):
+        user = create_user(email="user@example.com", password="testpass123")
+        self.client.force_authenticate(user)
+
+        root = create_story(owner=user, kind=models.Story.Kind.STORY)
+
+        child_2 = create_story(
+            owner=user,
+            title="Second",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=2,
+        )
+        child_1 = create_story(
+            owner=user,
+            title="First",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+        )
+
+        url = detail_url(root.id) + "wiki/"
+        res = self.client.get(url)
+
+        children = res.data["tree"]["children"]
+        self.assertEqual(children[0]["id"], child_1.id)
+        self.assertEqual(children[1]["id"], child_2.id)
+
+    def test_wiki_hides_private_child_content_from_non_owner(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="A",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="B",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="C",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=2,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+
+        char_a = models.Character.objects.create(
+            owner=owner,
+            name="Char A"
+        )
+        char_b = models.Character.objects.create(
+            owner=owner,
+            name="Char B"
+        )
+        char_c = models.Character.objects.create(
+            owner=owner,
+            name="Char C"
+        )
+
+        root.characters.add(char_a)
+        private_child.characters.add(char_b)
+        public_child.characters.add(char_c)
+
+        url = detail_url(root.id) + "wiki/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        aggregated_ids = [
+            character["id"]
+            for character in res.data["aggregated"]["characters"]
+        ]
+        tree_child_ids = [
+            child["id"]
+            for child in res.data["tree"]["children"]
+        ]
+
+        self.assertIn(char_a.id, aggregated_ids)
+        self.assertIn(char_c.id, aggregated_ids)
+        self.assertNotIn(char_b.id, aggregated_ids)
+
+        self.assertIn(public_child.id, tree_child_ids)
+        self.assertNotIn(private_child.id, tree_child_ids)
+
+    def test_wiki_includes_private_child_content_for_owner(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="A",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="B",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="C",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=2,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+
+        char_a = models.Character.objects.create(
+            owner=owner,
+            name="Char A"
+        )
+        char_b = models.Character.objects.create(
+            owner=owner,
+            name="Char B"
+        )
+        char_c = models.Character.objects.create(
+            owner=owner,
+            name="Char C"
+        )
+
+        root.characters.add(char_a)
+        private_child.characters.add(char_b)
+        public_child.characters.add(char_c)
+
+        url = detail_url(root.id) + "wiki/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        aggregated_ids = [
+            character["id"]
+            for character in res.data["aggregated"]["characters"]
+        ]
+
+        tree_child_ids = [
+            child["id"]
+            for child in res.data["tree"]["children"]
+        ]
+
+        self.assertIn(char_a.id, aggregated_ids)
+        self.assertIn(char_b.id, aggregated_ids)
+        self.assertIn(char_c.id, aggregated_ids)
+
+        self.assertIn(private_child.id, tree_child_ids)
+        self.assertIn(public_child.id, tree_child_ids)
+
+    def test_wiki_metadata_counts_respect_visibility(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        public_child = create_story(
+            owner=owner,
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=2,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+
+        char_root = models.Character.objects.create(
+            owner=owner,
+            name="Root Char"
+        )
+        char_private = models.Character.objects.create(
+            owner=owner,
+            name="Private Char"
+        )
+        char_public = models.Character.objects.create(
+            owner=owner,
+            name="Public Char"
+        )
+
+        root.characters.add(char_root)
+        private_child.characters.add(char_private)
+        public_child.characters.add(char_public)
+
+        url = detail_url(root.id) + "wiki/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["story"]["character_count"], 2)
+        self.assertEqual(res.data["story"]["part_count"], 1)
+
+
+class StoryCharacterWikiApiTests(APITestCase):
+    """Tests for the Story Character Wiki API endpoint."""
+
+    def test_character_wiki_returns_data_for_character_in_root_story(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        character = models.Character.objects.create(
+            owner=owner,
+            name="Root Hero",
+            description="Main protagonist.",
+        )
+        root.characters.add(character)
+
+        url = detail_url(root.id) + f"wiki/characters/{character.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], character.id)
+        self.assertEqual(res.data["name"], "Root Hero")
+        self.assertEqual(res.data["description"], "Main protagonist.")
+
+    def test_character_wiki_returns_data_for_character_in_public_child(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="Public Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        character = models.Character.objects.create(
+            owner=owner,
+            name="Public Child Hero",
+        )
+        public_child.characters.add(character)
+
+        url = detail_url(root.id) + f"wiki/characters/{character.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], character.id)
+        self.assertEqual(res.data["name"], "Public Child Hero")
+
+    def test_private_child_character_not_visible_to_non_owner(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        character = models.Character.objects.create(
+            owner=owner,
+            name="Hidden Hero",
+        )
+        private_child.characters.add(character)
+
+        url = detail_url(root.id) + f"wiki/characters/{character.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_private_child_character_visible_to_owner(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        character = models.Character.objects.create(
+            owner=owner,
+            name="Hidden Hero",
+        )
+        private_child.characters.add(character)
+
+        url = detail_url(root.id) + f"wiki/characters/{character.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], character.id)
+        self.assertEqual(res.data["name"], "Hidden Hero")
+
+    def test_character_outside_story_subtree_gives_404(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        other_story = create_story(
+            owner=owner,
+            title="Other Story",
+            kind=models.Story.Kind.STORY,
+        )
+        character = models.Character.objects.create(
+            owner=owner,
+            name="Unrelated Hero",
+        )
+        other_story.characters.add(character)
+
+        url = detail_url(root.id) + f"wiki/characters/{character.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_character_wiki_returns_400_for_part_root(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        part = create_story(
+            owner=owner,
+            title="Part Story",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+        )
+        character = models.Character.objects.create(
+            owner=owner,
+            name="Part Hero",
+        )
+        part.characters.add(character)
+
+        url = detail_url(part.id) + f"wiki/characters/{character.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            res.data["detail"],
+            "Wiki is only available for STORY or STANDALONE stories.",
+        )
+
+    def test_character_wiki_stories_field_includes_only_visible_stories(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="Public Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=2,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        character = models.Character.objects.create(
+            owner=owner,
+            name="Shared Hero",
+        )
+
+        root.characters.add(character)
+        private_child.characters.add(character)
+        public_child.characters.add(character)
+
+        url = detail_url(root.id) + f"wiki/characters/{character.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        story_ids = [story["id"] for story in res.data["stories"]]
+
+        self.assertIn(root.id, story_ids)
+        self.assertIn(public_child.id, story_ids)
+        self.assertNotIn(private_child.id, story_ids)
+
+
+class StoryLocationWikiApiTests(APITestCase):
+    """Tests for the Story Location Wiki API endpoint."""
+
+    def test_location_wiki_returns_data_for_location_in_root_story(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        location = models.Location.objects.create(
+            owner=owner,
+            name="Root City",
+            description="Main city.",
+            location_type="city",
+        )
+        root.locations.add(location)
+
+        url = detail_url(root.id) + f"wiki/locations/{location.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], location.id)
+        self.assertEqual(res.data["name"], "Root City")
+        self.assertEqual(res.data["description"], "Main city.")
+        self.assertEqual(res.data["location_type"], "city")
+
+    def test_location_wiki_returns_data_for_location_in_public_child(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="Public Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        location = models.Location.objects.create(
+            owner=owner,
+            name="Public Forest",
+            location_type="forest",
+        )
+        public_child.locations.add(location)
+
+        url = detail_url(root.id) + f"wiki/locations/{location.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], location.id)
+        self.assertEqual(res.data["name"], "Public Forest")
+
+    def test_private_child_location_not_visible_to_non_owner(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        location = models.Location.objects.create(
+            owner=owner,
+            name="Hidden Cave",
+            location_type="cave",
+        )
+        private_child.locations.add(location)
+
+        url = detail_url(root.id) + f"wiki/locations/{location.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_private_child_location_visible_to_owner(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        location = models.Location.objects.create(
+            owner=owner,
+            name="Hidden Cave",
+            location_type="cave",
+        )
+        private_child.locations.add(location)
+
+        url = detail_url(root.id) + f"wiki/locations/{location.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], location.id)
+        self.assertEqual(res.data["name"], "Hidden Cave")
+
+    def test_location_outside_story_subtree_gives_404(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        other_story = create_story(
+            owner=owner,
+            title="Other Story",
+            kind=models.Story.Kind.STORY,
+        )
+        location = models.Location.objects.create(
+            owner=owner,
+            name="Unrelated Place",
+            location_type="city",
+        )
+        other_story.locations.add(location)
+
+        url = detail_url(root.id) + f"wiki/locations/{location.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_location_wiki_returns_400_for_part_root(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        part = create_story(
+            owner=owner,
+            title="Part Story",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+        )
+        location = models.Location.objects.create(
+            owner=owner,
+            name="Part Town",
+            location_type="town",
+        )
+        part.locations.add(location)
+
+        url = detail_url(part.id) + f"wiki/locations/{location.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            res.data["detail"],
+            "Wiki is only available for STORY or STANDALONE stories.",
+        )
+
+    def test_location_wiki_stories_field_includes_only_visible_stories(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="Public Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=2,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        location = models.Location.objects.create(
+            owner=owner,
+            name="Shared Place",
+            location_type="ruins",
+        )
+
+        root.locations.add(location)
+        private_child.locations.add(location)
+        public_child.locations.add(location)
+
+        url = detail_url(root.id) + f"wiki/locations/{location.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        story_ids = [story["id"] for story in res.data["stories"]]
+
+        self.assertIn(root.id, story_ids)
+        self.assertIn(public_child.id, story_ids)
+        self.assertNotIn(private_child.id, story_ids)
+
+
+class StoryItemWikiApiTests(APITestCase):
+    """Tests for the Story Item Wiki API endpoint."""
+
+    def test_item_wiki_returns_data_for_item_in_root_story(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        item = models.Item.objects.create(
+            owner=owner,
+            name="Ancient Sword",
+            description="A blade from the old kingdom.",
+            item_type="weapon",
+            rarity="legendary",
+        )
+        root.items.add(item)
+
+        url = detail_url(root.id) + f"wiki/items/{item.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], item.id)
+        self.assertEqual(res.data["name"], "Ancient Sword")
+        self.assertEqual(
+            res.data["description"], "A blade from the old kingdom."
+        )
+        self.assertEqual(res.data["item_type"], "weapon")
+        self.assertEqual(res.data["rarity"], "legendary")
+
+    def test_item_wiki_returns_data_for_item_in_public_child(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="Public Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        item = models.Item.objects.create(
+            owner=owner,
+            name="Traveler's Compass",
+            item_type="tool",
+            rarity="common",
+        )
+        public_child.items.add(item)
+
+        url = detail_url(root.id) + f"wiki/items/{item.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], item.id)
+        self.assertEqual(res.data["name"], "Traveler's Compass")
+
+    def test_private_child_item_not_visible_to_non_owner(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        item = models.Item.objects.create(
+            owner=owner,
+            name="Hidden Relic",
+            item_type="artifact",
+            rarity="rare",
+        )
+        private_child.items.add(item)
+
+        url = detail_url(root.id) + f"wiki/items/{item.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_private_child_item_visible_to_owner(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        item = models.Item.objects.create(
+            owner=owner,
+            name="Hidden Relic",
+            item_type="artifact",
+            rarity="rare",
+        )
+        private_child.items.add(item)
+
+        url = detail_url(root.id) + f"wiki/items/{item.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], item.id)
+        self.assertEqual(res.data["name"], "Hidden Relic")
+
+    def test_item_outside_story_subtree_gives_404(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        other_story = create_story(
+            owner=owner,
+            title="Other Story",
+            kind=models.Story.Kind.STORY,
+        )
+        item = models.Item.objects.create(
+            owner=owner,
+            name="Unrelated Item",
+            item_type="artifact",
+            rarity="rare",
+        )
+        other_story.items.add(item)
+
+        url = detail_url(root.id) + f"wiki/items/{item.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_item_wiki_returns_400_for_part_root(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        part = create_story(
+            owner=owner,
+            title="Part Story",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+        )
+        item = models.Item.objects.create(
+            owner=owner,
+            name="Part Dagger",
+            item_type="weapon",
+            rarity="common",
+        )
+        part.items.add(item)
+
+        url = detail_url(part.id) + f"wiki/items/{item.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            res.data["detail"],
+            "Wiki is only available for STORY or STANDALONE stories.",
+        )
+
+    def test_item_wiki_stories_field_includes_only_visible_stories(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="Public Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=2,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        item = models.Item.objects.create(
+            owner=owner,
+            name="Shared Relic",
+            item_type="artifact",
+            rarity="epic",
+        )
+
+        root.items.add(item)
+        private_child.items.add(item)
+        public_child.items.add(item)
+
+        url = detail_url(root.id) + f"wiki/items/{item.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        story_ids = [story["id"] for story in res.data["stories"]]
+
+        self.assertIn(root.id, story_ids)
+        self.assertIn(public_child.id, story_ids)
+        self.assertNotIn(private_child.id, story_ids)
+
+
+class StoryFactionWikiApiTests(APITestCase):
+    """Tests for the Story Faction Wiki API endpoint."""
+
+    def test_faction_wiki_returns_data_for_faction_in_root_story(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        faction = models.Faction.objects.create(
+            owner=owner,
+            name="Silver Guard",
+            description="Protectors of the capital.",
+            faction_type="military",
+        )
+        root.factions.add(faction)
+
+        url = detail_url(root.id) + f"wiki/factions/{faction.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], faction.id)
+        self.assertEqual(res.data["name"], "Silver Guard")
+        self.assertEqual(res.data["description"], "Protectors of the capital.")
+        self.assertEqual(res.data["faction_type"], "military")
+
+    def test_faction_wiki_returns_data_for_faction_in_public_child(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="Public Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        faction = models.Faction.objects.create(
+            owner=owner,
+            name="Free Traders",
+            faction_type="guild",
+        )
+        public_child.factions.add(faction)
+
+        url = detail_url(root.id) + f"wiki/factions/{faction.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], faction.id)
+        self.assertEqual(res.data["name"], "Free Traders")
+
+    def test_private_child_faction_not_visible_to_non_owner(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        faction = models.Faction.objects.create(
+            owner=owner,
+            name="Shadow Circle",
+            faction_type="cult",
+        )
+        private_child.factions.add(faction)
+
+        url = detail_url(root.id) + f"wiki/factions/{faction.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_private_child_faction_visible_to_owner(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        faction = models.Faction.objects.create(
+            owner=owner,
+            name="Shadow Circle",
+            faction_type="cult",
+        )
+        private_child.factions.add(faction)
+
+        url = detail_url(root.id) + f"wiki/factions/{faction.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], faction.id)
+        self.assertEqual(res.data["name"], "Shadow Circle")
+
+    def test_faction_outside_story_subtree_gives_404(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        other_story = create_story(
+            owner=owner,
+            title="Other Story",
+            kind=models.Story.Kind.STORY,
+        )
+        faction = models.Faction.objects.create(
+            owner=owner,
+            name="Unrelated Order",
+            faction_type="religious",
+        )
+        other_story.factions.add(faction)
+
+        url = detail_url(root.id) + f"wiki/factions/{faction.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_faction_wiki_returns_400_for_part_root(self):
+        owner = create_user(email="owner@example.com", password="testpass123")
+        self.client.force_authenticate(owner)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+        )
+        part = create_story(
+            owner=owner,
+            title="Part Story",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+        )
+        faction = models.Faction.objects.create(
+            owner=owner,
+            name="Part Guild",
+            faction_type="guild",
+        )
+        part.factions.add(faction)
+
+        url = detail_url(part.id) + f"wiki/factions/{faction.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            res.data["detail"],
+            "Wiki is only available for STORY or STANDALONE stories.",
+        )
+
+    def test_faction_wiki_stories_field_includes_only_visible_stories(self):
+        owner = create_user(
+            email="owner@example.com",
+            password="testpass123"
+        )
+        other_user = create_user(
+            email="other@example.com",
+            password="testpass123"
+        )
+        self.client.force_authenticate(other_user)
+
+        root = create_story(
+            owner=owner,
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        private_child = create_story(
+            owner=owner,
+            title="Private Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=1,
+            visibility=models.Story.Visibility.PRIVATE,
+        )
+        public_child = create_story(
+            owner=owner,
+            title="Public Child",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            order=2,
+            visibility=models.Story.Visibility.PUBLIC,
+        )
+        faction = models.Faction.objects.create(
+            owner=owner,
+            name="Shared Alliance",
+            faction_type="alliance",
+        )
+
+        root.factions.add(faction)
+        private_child.factions.add(faction)
+        public_child.factions.add(faction)
+
+        url = detail_url(root.id) + f"wiki/factions/{faction.id}/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        story_ids = [story["id"] for story in res.data["stories"]]
+
+        self.assertIn(root.id, story_ids)
+        self.assertIn(public_child.id, story_ids)
+        self.assertNotIn(private_child.id, story_ids)
