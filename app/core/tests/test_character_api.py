@@ -35,6 +35,21 @@ def create_user(email=None, password="testpass123", **extra):
     return get_user_model().objects.create_user(email, password, **extra)
 
 
+def create_trait_set_with_traits(user, labels):
+    trait_set = models.TraitSet.objects.create(
+        name="Test Traits",
+        owner=user,
+    )
+
+    for label in labels:
+        models.Trait.objects.create(
+            trait_set=trait_set,
+            label=label,
+        )
+
+    return trait_set
+
+
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
 class CharacterApiTests(APITestCase):
     """Tests for the Character API."""
@@ -103,10 +118,6 @@ class CharacterApiTests(APITestCase):
         payload = {
             "name": "Xiao",
             "description": "A vigilant yaksha.",
-            "age": 2000,
-            "age_description": "Over 2000 years old",
-            "species": "Adeptus",
-            "gender": "male",
             "location": location.id,
             "affiliations": [faction1.id, faction2.id],
             "equipment": [item1.id, item2.id],
@@ -124,10 +135,6 @@ class CharacterApiTests(APITestCase):
 
         self.assertEqual(character.name, "Xiao")
         self.assertEqual(character.description, "A vigilant yaksha.")
-        self.assertEqual(character.age, 2000)
-        self.assertEqual(character.age_description, "Over 2000 years old")
-        self.assertEqual(character.species, "Adeptus")
-        self.assertEqual(character.gender, "male")
         self.assertEqual(character.location, location)
         self.assertEqual(character.owner, self.user)
 
@@ -167,8 +174,6 @@ class CharacterApiTests(APITestCase):
         character = models.Character.objects.create(
             name="Xiao",
             description="A vigilant yaksha.",
-            species="Adeptus",
-            gender="male",
             owner=self.user,
         )
         url = detail_url(character.id)
@@ -698,3 +703,84 @@ class CharacterApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res.data), 1)
         self.assertEqual(res.data[0]["name"], "Public Character")
+
+    def test_create_character_with_profile(self):
+        """Creating a character with profile should persist profile data."""
+
+        create_trait_set_with_traits(self.user, ["Age", "Element"])
+        payload = {
+            "name": "Xiao",
+            "profile": {
+                "age": 2000,
+                "element": "anemo",
+            }
+        }
+
+        res = self.client.post(CHARACTERS_URL, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        character = models.Character.objects.get(id=res.data["id"])
+        self.assertTrue(hasattr(character, "profile"))
+        self.assertEqual(character.profile.data, {
+            "age": 2000,
+            "element": "anemo",
+        })
+
+    def test_retrieve_character_returns_profile(self):
+        """Character detail should include profile data."""
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=self.user,
+        )
+        models.CharacterProfile.objects.create(
+            character=character,
+            data={"age": 2000},
+        )
+
+        url = detail_url(character.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["profile"], {"age": 2000})
+
+    def test_retrieve_character_without_profile_returns_null(self):
+        """Character without profile should return profile as null."""
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=self.user,
+        )
+
+        url = detail_url(character.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res.data["profile"])
+
+    def test_update_profile_merges_data(self):
+        """Updating profile should merge new data into existing data."""
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=self.user,
+        )
+        create_trait_set_with_traits(self.user, ["Age", "Element"])
+        models.CharacterProfile.objects.create(
+            character=character,
+            data={"age": 2000},
+        )
+
+        url = detail_url(character.id)
+
+        res = self.client.patch(
+            url,
+            {"profile": {"element": "anemo"}},
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        character.refresh_from_db()
+        self.assertEqual(
+            character.profile.data,
+            {"age": 2000, "element": "anemo"},
+        )

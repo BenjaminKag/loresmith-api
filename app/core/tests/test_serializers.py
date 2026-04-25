@@ -18,6 +18,21 @@ def create_user(email=None, password="testpass123", **extra):
     return get_user_model().objects.create_user(email, password, **extra)
 
 
+def create_trait_set_with_traits(user, labels):
+    trait_set = models.TraitSet.objects.create(
+        name="Default Traits",
+        owner=user,
+    )
+
+    for label in labels:
+        models.Trait.objects.create(
+            trait_set=trait_set,
+            label=label,
+        )
+
+    return trait_set
+
+
 class DummyRequest:
     def __init__(self, user):
         self.user = user
@@ -391,10 +406,6 @@ class CharacterSerializerTests(TestCase):
         character = models.Character.objects.create(
             name="Xiao",
             description="A vigilant yaksha.",
-            age=2000,
-            age_description="Over 2000 years old",
-            species="Adeptus",
-            gender="male",
             location=location,
             relationships={
                 "fellow adepti": ["Cloud Retainer"],
@@ -411,10 +422,6 @@ class CharacterSerializerTests(TestCase):
 
         self.assertEqual(data["name"], "Xiao")
         self.assertEqual(data["description"], "A vigilant yaksha.")
-        self.assertEqual(data["age"], 2000)
-        self.assertEqual(data["age_description"], "Over 2000 years old")
-        self.assertEqual(data["species"], "Adeptus")
-        self.assertEqual(data["gender"], "male")
 
         self.assertEqual(data["location"], location.id)
 
@@ -464,10 +471,6 @@ class CharacterSerializerTests(TestCase):
         payload = {
             "name": "Xiao",
             "description": "A vigilant yaksha.",
-            "age": 2000,
-            "age_description": "Over 2000 years old",
-            "species": "Adeptus",
-            "gender": "male",
             "location": location.id,
             "affiliations": [faction.id],
             "equipment": [item.id],
@@ -485,9 +488,6 @@ class CharacterSerializerTests(TestCase):
 
         self.assertEqual(character.name, "Xiao")
         self.assertEqual(character.location, location)
-        self.assertEqual(character.age, 2000)
-        self.assertEqual(character.species, "Adeptus")
-        self.assertEqual(character.gender, "male")
 
         self.assertEqual(list(character.affiliations.all()), [faction])
         self.assertEqual(list(character.equipment.all()), [item])
@@ -505,7 +505,6 @@ class CharacterSerializerTests(TestCase):
         user = create_user()
         payload = {
             "description": "Nameless character.",
-            "species": "Human",
         }
 
         serializer = serializers.CharacterSerializer(
@@ -532,10 +531,6 @@ class CharacterSerializerTests(TestCase):
 
         self.assertEqual(character.name, "Mysterious Stranger")
         self.assertEqual(character.description, "")
-        self.assertIsNone(character.age)
-        self.assertEqual(character.age_description, "")
-        self.assertEqual(character.species, "")
-        self.assertEqual(character.gender, "")
         self.assertIsNone(character.location)
         self.assertEqual(character.relationships, {})
         self.assertEqual(character.extra_data, {})
@@ -590,6 +585,354 @@ class CharacterSerializerTests(TestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("location", serializer.errors)
+
+    def test_serializer_creates_profile(self):
+        """Serializer should create profile when provided."""
+        user = create_user()
+
+        create_trait_set_with_traits(user, ["Age",])
+        payload = {
+            "name": "Xiao",
+            "profile": {"age": 2000},
+        }
+
+        serializer = serializers.CharacterSerializer(
+            data=payload,
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        character = serializer.save()
+
+        self.assertTrue(hasattr(character, "profile"))
+        self.assertEqual(character.profile.data, {"age": 2000})
+
+    def test_serializer_updates_profile(self):
+        """Serializer should update existing profile."""
+        user = create_user()
+
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=user,
+        )
+        create_trait_set_with_traits(user, ["Age", "Element"])
+        models.CharacterProfile.objects.create(
+            character=character,
+            data={"age": 2000},
+        )
+
+        payload = {
+            "profile": {"element": "anemo"},
+        }
+
+        serializer = serializers.CharacterSerializer(
+            character,
+            data=payload,
+            partial=True,
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        character = serializer.save()
+
+        character.profile.refresh_from_db()
+
+        self.assertEqual(
+            character.profile.data,
+            {"age": 2000, "element": "anemo"},
+        )
+
+    def test_profile_trait_sets_allowed_when_character_has_no_stories(self):
+        """Character without stories can use any owned trait set."""
+        user = create_user()
+
+        trait_set = models.TraitSet.objects.create(
+            name="Magic",
+            owner=user,
+        )
+
+        payload = {
+            "name": "Xiao",
+            "profile_trait_sets": [trait_set.id],
+        }
+
+        serializer = serializers.CharacterSerializer(
+            data=payload,
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_profile_trait_sets_must_be_allowed_by_existing_story(self):
+        """Character trait sets must be allowed by attached stories."""
+        user = create_user()
+
+        physical = models.TraitSet.objects.create(name="Physical", owner=user)
+        magic = models.TraitSet.objects.create(name="Magic", owner=user)
+
+        character = models.Character.objects.create(name="Xiao", owner=user)
+
+        story = models.Story.objects.create(
+            title="Main Story",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+        story.allowed_trait_sets.add(physical)
+        story.characters.add(character)
+
+        payload = {
+            "profile_trait_sets": [magic.id],
+        }
+
+        serializer = serializers.CharacterSerializer(
+            character,
+            data=payload,
+            partial=True,
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("profile_trait_sets", serializer.errors)
+
+    def test_profile_trait_sets_allowed_by_existing_story_passes(self):
+        """Character can use trait sets allowed by attached stories."""
+        user = create_user()
+
+        physical = models.TraitSet.objects.create(name="Physical", owner=user)
+
+        character = models.Character.objects.create(name="Xiao", owner=user)
+
+        story = models.Story.objects.create(
+            title="Main Story",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+        story.allowed_trait_sets.add(physical)
+        story.characters.add(character)
+
+        payload = {
+            "profile_trait_sets": [physical.id],
+        }
+
+        serializer = serializers.CharacterSerializer(
+            character,
+            data=payload,
+            partial=True,
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_profile_trait_sets_use_union_of_multiple_stories(self):
+        """Character can use trait sets allowed by any attached story."""
+        user = create_user()
+
+        physical = models.TraitSet.objects.create(name="Physical", owner=user)
+        magic = models.TraitSet.objects.create(name="Magic", owner=user)
+
+        character = models.Character.objects.create(name="Xiao", owner=user)
+
+        story_a = models.Story.objects.create(
+            title="Story A",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+        story_b = models.Story.objects.create(
+            title="Story B",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+
+        story_a.allowed_trait_sets.add(physical)
+        story_b.allowed_trait_sets.add(magic)
+
+        story_a.characters.add(character)
+        story_b.characters.add(character)
+
+        payload = {
+            "profile_trait_sets": [physical.id, magic.id],
+        }
+
+        serializer = serializers.CharacterSerializer(
+            character,
+            data=payload,
+            partial=True,
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_profile_trait_sets_inherit_allowed_sets_from_root_story(self):
+        """PART stories should use allowed trait sets from their root story."""
+        user = create_user()
+
+        physical = models.TraitSet.objects.create(name="Physical", owner=user)
+
+        character = models.Character.objects.create(name="Xiao", owner=user)
+
+        root = models.Story.objects.create(
+            title="Root Story",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+        root.allowed_trait_sets.add(physical)
+
+        part = models.Story.objects.create(
+            title="Part One",
+            kind=models.Story.Kind.PART,
+            parent=root,
+            owner=user,
+        )
+        part.characters.add(character)
+
+        payload = {
+            "profile_trait_sets": [physical.id],
+        }
+
+        serializer = serializers.CharacterSerializer(
+            character,
+            data=payload,
+            partial=True,
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_character_gets_default_trait_sets_on_create(self):
+        """
+        New characters should automatically get user's default trait sets.
+        """
+        user = create_user()
+
+        default_set = models.TraitSet.objects.create(
+            name="Magic",
+            owner=user,
+            is_default=True,
+        )
+        non_default_set = models.TraitSet.objects.create(
+            name="Politics",
+            owner=user,
+            is_default=False,
+        )
+
+        serializer = serializers.CharacterSerializer(
+            data={"name": "Xiao"},
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        character = serializer.save()
+
+        self.assertIn(default_set, character.profile_trait_sets.all())
+        self.assertNotIn(non_default_set, character.profile_trait_sets.all())
+
+    def test_story_gets_default_trait_sets_on_create(self):
+        """
+        New root stories should automatically get user's default trait sets.
+        """
+        user = create_user()
+
+        default_set = models.TraitSet.objects.create(
+            name="Magic",
+            owner=user,
+            is_default=True,
+        )
+        non_default_set = models.TraitSet.objects.create(
+            name="Politics",
+            owner=user,
+            is_default=False,
+        )
+
+        serializer = serializers.StorySerializer(
+            data={
+                "title": "Main Story",
+                "kind": models.Story.Kind.STORY,
+            },
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        story = serializer.save()
+
+        self.assertIn(default_set, story.allowed_trait_sets.all())
+        self.assertNotIn(non_default_set, story.allowed_trait_sets.all())
+
+    def test_part_story_does_not_get_default_trait_sets_on_create(self):
+        """
+        PART stories should inherit trait sets, not store defaults directly.
+        """
+        user = create_user()
+
+        default_set = models.TraitSet.objects.create(
+            name="Magic",
+            owner=user,
+            is_default=True,
+        )
+
+        parent = models.Story.objects.create(
+            title="Main Story",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+
+        serializer = serializers.StorySerializer(
+            data={
+                "title": "Part One",
+                "kind": models.Story.Kind.PART,
+                "parent": parent.id,
+            },
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        story = serializer.save()
+
+        self.assertNotIn(default_set, story.allowed_trait_sets.all())
+
+    def test_turning_trait_set_default_adds_it_to_stories_and_characters(self):
+        """
+        Making a trait set default should add it
+        to existing stories and characters.
+        """
+        user = create_user()
+
+        trait_set = models.TraitSet.objects.create(
+            name="Magic",
+            owner=user,
+            is_default=False,
+        )
+
+        story = models.Story.objects.create(
+            title="Main Story",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=user,
+        )
+
+        serializer = serializers.TraitSetSerializer(
+            trait_set,
+            data={"is_default": True},
+            partial=True,
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        serializer.save()
+
+        story.refresh_from_db()
+        character.refresh_from_db()
+
+        self.assertIn(trait_set, story.allowed_trait_sets.all())
+        self.assertIn(trait_set, character.profile_trait_sets.all())
 
 
 class StorySerializerTests(TestCase):

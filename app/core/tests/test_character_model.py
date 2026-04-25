@@ -44,18 +44,10 @@ class CharacterModelTests(TestCase):
         character = create_character(
             name="Xiao",
             description="A vigilant yaksha.",
-            age=2000,
-            age_description="Over 2000 years old",
-            species="Adeptus",
-            gender="Male"
         )
 
         self.assertEqual(character.name, "Xiao")
         self.assertEqual(character.description, "A vigilant yaksha.")
-        self.assertEqual(character.age, 2000)
-        self.assertEqual(character.age_description, "Over 2000 years old")
-        self.assertEqual(character.species, "Adeptus")
-        self.assertEqual(character.gender, "Male")
 
     def test_character_relationships_field(self):
         """Test the relationships field."""

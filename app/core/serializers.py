@@ -7,6 +7,142 @@ from . import models, utils
 from core.mixins import TagNamesMixin
 
 
+def get_default_trait_sets_for_user(user):
+    """Return the user's default trait sets."""
+    return models.TraitSet.objects.filter(
+        owner=user,
+        is_default=True,
+    )
+
+
+class TraitSetSerializer(serializers.ModelSerializer):
+    """Serializer for user-owned trait sets."""
+
+    class Meta:
+        model = models.TraitSet
+        fields = (
+            "id",
+            "name",
+            "slug",
+            "is_default",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "slug",
+            "created_at",
+            "updated_at",
+        )
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data["owner"] = request.user
+
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        """
+        Update a trait set and apply it to existing objects if made default.
+        """
+        was_default = instance.is_default
+
+        instance = super().update(instance, validated_data)
+
+        if not was_default and instance.is_default:
+            for story in models.Story.objects.filter(
+                owner=instance.owner
+            ).exclude(kind=models.Story.Kind.PART):
+                story.allowed_trait_sets.add(instance)
+
+            for character in models.Character.objects.filter(
+                owner=instance.owner
+            ):
+                character.profile_trait_sets.add(instance)
+
+        return instance
+
+    def validate_name(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if not user or not user.is_authenticated:
+            return value
+
+        slug = models.slugify_underscore(value)
+
+        queryset = models.TraitSet.objects.filter(
+            owner=user,
+            slug=slug,
+        )
+
+        if self.instance:
+            queryset = queryset.exclude(id=self.instance.id)
+
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "You already have a trait set with this name."
+            )
+
+        return value
+
+
+class TraitSerializer(serializers.ModelSerializer):
+    """Serializer for traits inside a trait set."""
+
+    class Meta:
+        model = models.Trait
+        fields = (
+            "id",
+            "trait_set",
+            "key",
+            "label",
+            "created_at",
+        )
+        read_only_fields = (
+            "id",
+            "key",
+            "created_at",
+        )
+
+    def validate_trait_set(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if user and user.is_authenticated and value.owner != user:
+            raise serializers.ValidationError(
+                "You can only add traits to your own trait sets."
+            )
+
+        return value
+
+    def validate(self, attrs):
+        trait_set = attrs.get(
+            "trait_set",
+            getattr(self.instance, "trait_set", None)
+        )
+        label = attrs.get("label", getattr(self.instance, "label", None))
+
+        if trait_set and label:
+            key = models.slugify_underscore(label)
+
+            queryset = models.Trait.objects.filter(
+                trait_set=trait_set,
+                key=key,
+            )
+
+            if self.instance:
+                queryset = queryset.exclude(id=self.instance.id)
+
+            if queryset.exists():
+                raise serializers.ValidationError({
+                    "label": "This trait already exists in this trait set."
+                })
+
+        return attrs
+
+
 class TagSerializer(serializers.ModelSerializer):
     """Serializer for Tag model."""
 
@@ -170,13 +306,49 @@ class CharacterSerializer(TagNamesMixin, serializers.ModelSerializer):
         allow_null=True
     )
 
+    profile = serializers.JSONField(required=False)
+
     class Meta:
         model = models.Character
         fields = "__all__"
         read_only_fields = ("id", "created_at", "updated_at", "owner")
 
+    def to_representation(self, instance):
+        """
+        Customize the output representation of a Character.
+
+        Since the profile is stored in a separate CharacterProfile model,
+        we manually inject it into the response.
+
+        If a profile exists, return its JSON data.
+        Otherwise, return null.
+        """
+        representation = super().to_representation(instance)
+
+        if hasattr(instance, "profile"):
+            representation["profile"] = instance.profile.data
+        else:
+            representation["profile"] = None
+
+        return representation
+
+    def _merge_profile_data(self, existing_data, incoming_data):
+        """Merge incoming profile data into existing profile data."""
+        merged_data = existing_data.copy()
+
+        for key, value in incoming_data.items():
+            normalized_key = models.slugify_underscore(key)
+
+            if value is None:
+                merged_data.pop(normalized_key, None)
+            else:
+                merged_data[normalized_key] = value
+
+        return merged_data
+
     def create(self, validated_data):
         tags = validated_data.pop("tags", [])
+        profile_data = validated_data.pop("profile", None)
 
         request = self.context.get("request")
         if request and request.user and request.user.is_authenticated:
@@ -187,22 +359,129 @@ class CharacterSerializer(TagNamesMixin, serializers.ModelSerializer):
         if tags:
             self._replace_tags(instance, tags)
 
+        default_trait_sets = get_default_trait_sets_for_user(instance.owner)
+        instance.profile_trait_sets.add(*default_trait_sets)
+
+        if profile_data is not None:
+            models.CharacterProfile.objects.create(
+                character=instance,
+                data=self._merge_profile_data({}, profile_data),
+            )
+
         return instance
 
     def update(self, instance, validated_data):
         tags = validated_data.pop("tags", None)
+        profile_data = validated_data.pop("profile", None)
 
         instance = super().update(instance, validated_data)
 
         if tags is not None:
             self._replace_tags(instance, tags)
 
+        if profile_data is not None:
+            profile, _ = models.CharacterProfile.objects.get_or_create(
+                character=instance,
+            )
+            profile.data = self._merge_profile_data(
+                profile.data,
+                profile_data
+            )
+            profile.save()
+
         return instance
 
     def validate(self, attrs):
         request = self.context.get("request")
         user = getattr(request, "user", None)
+        profile_data = attrs.get("profile")
 
+        # If profile data is provided, validate that all keys
+        # correspond to valid traits for this user.
+        if profile_data is not None and user and user.is_authenticated:
+            # Determine which trait sets to use
+            if self.instance:
+                trait_sets = self.instance.profile_trait_sets.all()
+            else:
+                trait_sets = attrs.get("profile_trait_sets")
+
+            # If character has selected trait sets → use them
+            if trait_sets:
+                valid_keys = set(
+                    models.Trait.objects.filter(
+                        trait_set__in=trait_sets
+                    ).values_list("key", flat=True)
+                )
+            else:
+                # fallback: allow all user traits
+                valid_keys = set(
+                    models.Trait.objects.filter(
+                        trait_set__owner=user
+                    ).values_list("key", flat=True)
+                )
+
+            # Normalize incoming keys
+            incoming_keys = {
+                models.slugify_underscore(key)
+                for key in profile_data.keys()
+            }
+
+            invalid_keys = incoming_keys - valid_keys
+
+            if invalid_keys:
+                raise serializers.ValidationError({
+                    "profile": (
+                        f"Invalid trait keys: {list(invalid_keys)}. "
+                        "All profile fields must be defined as traits."
+                    )
+                })
+
+        # Validate profile_trait_sets against story.allowed_trait_sets
+        if user and user.is_authenticated:
+            # Determine incoming or existing trait sets
+            if self.instance:
+                profile_trait_sets = attrs.get(
+                    "profile_trait_sets",
+                    self.instance.profile_trait_sets.all()
+                )
+            else:
+                profile_trait_sets = attrs.get("profile_trait_sets")
+
+            # If no trait sets provided -> nothing to validate
+            if profile_trait_sets:
+                # Determine stories (incoming or existing)
+                if self.instance:
+                    stories = attrs.get("stories", self.instance.stories.all())
+                else:
+                    stories = attrs.get("stories")
+
+                if stories:
+                    allowed_sets = set()
+
+                    for story in stories:
+                        # Resolve root story (handle PART)
+                        root = story
+                        while root.parent:
+                            root = root.parent
+
+                        # Add allowed sets from root story
+                        allowed_sets.update(root.allowed_trait_sets.all())
+
+                    profile_set_ids = {ts.id for ts in profile_trait_sets}
+                    allowed_set_ids = {ts.id for ts in allowed_sets}
+
+                    invalid_sets = profile_set_ids - allowed_set_ids
+
+                    if invalid_sets:
+                        raise serializers.ValidationError({
+                            "profile_trait_sets": (
+                                "Selected trait sets are not "
+                                "allowed by the character's stories."
+                            )
+                        })
+
+        # If the user is authenticated, validate that any
+        # assigned relationships belong to the user.
         if user and user.is_authenticated:
             location = attrs.get("location")
             affiliations = attrs.get("affiliations", [])
@@ -261,6 +540,12 @@ class StorySerializer(TagNamesMixin, serializers.ModelSerializer):
 
         if tags:
             self._replace_tags(instance, tags)
+
+        if instance.kind != models.Story.Kind.PART:
+            default_trait_sets = get_default_trait_sets_for_user(
+                instance.owner
+            )
+            instance.allowed_trait_sets.add(*default_trait_sets)
 
         return instance
 
@@ -481,6 +766,7 @@ class CharacterWikiDetailSerializer(serializers.ModelSerializer):
         slug_field="name",
     )
     stories = serializers.SerializerMethodField()
+    profile = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Character
@@ -489,11 +775,9 @@ class CharacterWikiDetailSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "image",
-            "age",
-            "species",
-            "gender",
             "tags",
             "stories",
+            "profile",
         ]
         read_only_fields = fields
 
@@ -510,6 +794,12 @@ class CharacterWikiDetailSerializer(serializers.ModelSerializer):
             many=True,
             context=self.context,
         ).data
+
+    def get_profile(self, obj):
+        """Return character profile if it exists."""
+        if hasattr(obj, "profile"):
+            return obj.profile.data
+        return None
 
 
 class LocationWikiDetailSerializer(serializers.ModelSerializer):

@@ -27,6 +27,11 @@ def detail_url(story_id: int):
     return reverse("story-detail", args=[story_id])
 
 
+def character_wiki_detail_url(story_id, character_id):
+    """Create and return a character wiki detail URL."""
+    return f"/api/stories/{story_id}/wiki/characters/{character_id}/"
+
+
 def create_user(email=None, password="testpass123", **extra):
     """Helper function to create a new user."""
     if email is None:
@@ -1157,6 +1162,62 @@ class StoryCharacterWikiApiTests(APITestCase):
         self.assertIn(root.id, story_ids)
         self.assertIn(public_child.id, story_ids)
         self.assertNotIn(private_child.id, story_ids)
+
+    def test_character_wiki_includes_profile(self):
+        """Character wiki should include profile data if it exists."""
+        user = create_user()
+        self.client.force_authenticate(user)
+
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=user,
+        )
+
+        models.CharacterProfile.objects.create(
+            character=character,
+            data={"age": 2000, "element": "anemo"},
+        )
+
+        story = models.Story.objects.create(
+            title="Main Story",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+        story.characters.add(character)
+
+        url = character_wiki_detail_url(story.id, character.id)
+
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            res.data["profile"],
+            {"age": 2000, "element": "anemo"},
+        )
+
+    def test_character_wiki_profile_null_if_not_exists(self):
+        """Character wiki should return null profile if none exists."""
+        user = create_user()
+        self.client.force_authenticate(user)
+
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=user,
+        )
+
+        story = models.Story.objects.create(
+            title="Main Story",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+        story.characters.add(character)
+
+        url = character_wiki_detail_url(story.id, character.id)
+
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res.data["profile"])
 
 
 class StoryLocationWikiApiTests(APITestCase):

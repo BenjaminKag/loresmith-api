@@ -22,6 +22,9 @@ class UserManager(BaseUserManager):
         user.set_password(password)
         user.save(using=self._db)
 
+        from core.models import create_default_trait_sets_for_user
+        create_default_trait_sets_for_user(user)
+
         return user
 
     def create_superuser(self, email, password):

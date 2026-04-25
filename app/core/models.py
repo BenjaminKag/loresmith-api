@@ -9,6 +9,122 @@ from django.core.exceptions import ValidationError
 from .mixins import ImageCleanupMixin
 
 
+DEFAULT_TRAIT_SETS = {
+    "Physical Traits": [
+        "Age",
+        "Height",
+        "Weight",
+        "Eye Color",
+        "Hair Color",
+        "Species",
+        "Gender",
+        "Body Type",
+        "Distinguishing Features",
+    ],
+    "Personality Traits": [
+        "Quirks",
+        "Fears",
+        "Goals",
+        "Strengths",
+        "Weaknesses",
+        "Values",
+        "Temperament",
+        "Hobbies",
+    ],
+}
+
+
+def slugify_underscore(value: str) -> str:
+    return slugify(value).replace("-", "_")
+
+
+def create_default_trait_sets_for_user(user):
+    """Create default trait sets and traits for a new user."""
+    for set_name, trait_labels in DEFAULT_TRAIT_SETS.items():
+        trait_set, _ = TraitSet.objects.get_or_create(
+            owner=user,
+            slug=slugify_underscore(set_name),
+            defaults={
+                "name": set_name,
+                "is_default": True,
+            },
+        )
+
+        for label in trait_labels:
+            Trait.objects.get_or_create(
+                trait_set=trait_set,
+                key=slugify_underscore(label),
+                defaults={"label": label},
+            )
+
+
+class TraitSet(models.Model):
+    """User-defined grouping of traits (e.g. Physical, Personality)."""
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner", "slug"],
+                name="unique_trait_set_slug_per_user"
+            )
+        ]
+
+    name = models.CharField(max_length=255)
+    slug = models.CharField(max_length=255)
+
+    is_default = models.BooleanField(default=False)
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="trait_sets",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        self.slug = slugify_underscore(self.name)
+
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Trait(models.Model):
+    """Defines a single trait key within a trait set (e.g. age, height)."""
+
+    class Meta:
+        ordering = ["key"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["trait_set", "key"],
+                name="unique_trait_key_per_set"
+            )
+        ]
+
+    trait_set = models.ForeignKey(
+        "TraitSet",
+        on_delete=models.CASCADE,
+        related_name="traits",
+    )
+
+    key = models.CharField(max_length=255)
+    label = models.CharField(max_length=255)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        self.key = slugify_underscore(self.label)
+
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.trait_set.name}: {self.label}"
+
+
 class Tag(models.Model):
     """User-scoped tag that can be attached to multiple entity types."""
 
@@ -244,11 +360,6 @@ class Character(ImageCleanupMixin, models.Model):
         blank=True,
         upload_to="uploads/character/"
     )
-    age = models.IntegerField(null=True, blank=True)
-    age_description = models.CharField(max_length=50, blank=True)
-    # To be made a model in the future
-    species = models.CharField(max_length=100, blank=True)
-    gender = models.CharField(max_length=50, blank=True)
 
     affiliations = models.ManyToManyField(
         Faction,
@@ -279,6 +390,12 @@ class Character(ImageCleanupMixin, models.Model):
         related_name="holders",
     )
 
+    profile_trait_sets = models.ManyToManyField(
+        "TraitSet",
+        blank=True,
+        related_name="characters",
+    )
+
     tags = models.ManyToManyField(
         "Tag",
         blank=True,
@@ -307,6 +424,24 @@ class Character(ImageCleanupMixin, models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class CharacterProfile(models.Model):
+    """Structured profile values for a character."""
+
+    character = models.OneToOneField(
+        "Character",
+        on_delete=models.CASCADE,
+        related_name="profile",
+    )
+
+    data = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Profile for {self.character.name}"
 
 
 class Story(ImageCleanupMixin, models.Model):
@@ -365,6 +500,12 @@ class Story(ImageCleanupMixin, models.Model):
         max_length=20,
         choices=Visibility.choices,
         default=Visibility.PRIVATE,
+    )
+
+    allowed_trait_sets = models.ManyToManyField(
+        "TraitSet",
+        blank=True,
+        related_name="stories",
     )
 
     in_world_date = models.CharField(
@@ -475,8 +616,7 @@ class Story(ImageCleanupMixin, models.Model):
     def save(self, *args, **kwargs):
         old_image = self._get_old_image()
 
-        if not self.slug:
-            self.slug = slugify(self.title)
+        self.slug = slugify(self.title)
 
         self.full_clean()
         super().save(*args, **kwargs)
@@ -486,3 +626,28 @@ class Story(ImageCleanupMixin, models.Model):
     def delete(self, *args, **kwargs):
         self._delete_image_file()
         super().delete(*args, **kwargs)
+
+    def get_effective_trait_sets(self):
+        """Return the trait sets effective for this story (inherit if PART)."""
+
+        if self.kind != self.Kind.PART:
+            return self.allowed_trait_sets.all()
+
+        current = self.parent
+        while current:
+            if current.kind != self.Kind.PART:
+                return current.allowed_trait_sets.all()
+            current = current.parent
+
+        return TraitSet.objects.none()
+
+    def get_effective_trait_keys(self):
+        """Return a set of allowed trait keys for this story."""
+
+        trait_sets = self.get_effective_trait_sets()
+
+        return set(
+            Trait.objects.filter(
+                trait_set__in=trait_sets
+            ).values_list("key", flat=True)
+        )

@@ -13,5 +13,7 @@ router.register("items", views.ItemViewSet, basename="item")
 router.register("characters", views.CharacterViewSet, basename="character")
 router.register("stories", views.StoryViewSet, basename="story")
 router.register("tags", views.TagViewSet, basename="tag")
+router.register("trait-sets", views.TraitSetViewSet, basename="trait-set")
+router.register("traits", views.TraitViewSet, basename="trait")
 
 urlpatterns = router.urls

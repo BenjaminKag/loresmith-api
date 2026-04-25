@@ -48,15 +48,14 @@ class StoryModelTests(TestCase):
 
         self.assertEqual(story.slug, expected_slug)
 
-    def test_slug_does_not_change_when_title_changes(self):
-        """Slug should stay the same when the title changes."""
+    def test_slug_updates_when_title_changes(self):
+        """Slug should update when the title changes."""
         story = create_story(title="Old Title")
-        original_slug = story.slug
 
         story.title = "New Title"
         story.save()
 
-        self.assertEqual(story.slug, original_slug)
+        self.assertEqual(story.slug, "new-title")
 
     def test_default_enum_values(self):
         """
