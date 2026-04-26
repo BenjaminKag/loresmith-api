@@ -27,6 +27,11 @@ def detail_url(character_id: int):
     return reverse("character-detail", args=[character_id])
 
 
+def profile_options_url(character_id: int):
+    """Create and return a character profile options URL."""
+    return reverse("character-profile-options", args=[character_id])
+
+
 def create_user(email=None, password="testpass123", **extra):
     """Helper function to create a new user."""
     if email is None:
@@ -784,3 +789,83 @@ class CharacterApiTests(APITestCase):
             character.profile.data,
             {"age": 2000, "element": "anemo"},
         )
+
+    def test_profile_options_returns_grouped_traits(self):
+        """
+        Profile options should return traits grouped by selected trait sets.
+        """
+        physical = models.TraitSet.objects.create(
+            name="Physical",
+            owner=self.user,
+        )
+        models.Trait.objects.create(trait_set=physical, label="Age")
+        models.Trait.objects.create(trait_set=physical, label="Height")
+
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=self.user,
+        )
+        character.profile_trait_sets.set([physical])
+
+        url = profile_options_url(character.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["set"]["name"], "Physical")
+        self.assertEqual(res.data[0]["set"]["id"], physical.id)
+
+        self.assertCountEqual(
+            res.data[0]["traits"],
+            [
+                {"key": "age", "label": "Age"},
+                {"key": "height", "label": "Height"},
+            ],
+        )
+
+    def test_profile_options_excludes_unselected_trait_sets(self):
+        """Profile options should not include traits from unselected sets."""
+        physical = models.TraitSet.objects.create(
+            name="Physical",
+            owner=self.user,
+        )
+        magic = models.TraitSet.objects.create(
+            name="Magic",
+            owner=self.user,
+        )
+
+        models.Trait.objects.create(trait_set=physical, label="Age")
+        models.Trait.objects.create(trait_set=magic, label="Element")
+
+        character = models.Character.objects.create(
+            name="Xiao",
+            owner=self.user,
+        )
+        character.profile_trait_sets.set([physical])
+
+        url = profile_options_url(character.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["set"]["name"], "Physical")
+
+        set_ids = [item["set"]["id"] for item in res.data]
+        self.assertIn(physical.id, set_ids)
+        self.assertNotIn(magic.id, set_ids)
+
+    def test_profile_options_private_character_forbidden_for_other_users(self):
+        """
+        Users should not access profile options
+        for private characters they cannot view.
+        """
+        other_user = create_user(email="other@example.com")
+        character = models.Character.objects.create(
+            name="Hidden Character",
+            owner=other_user,
+        )
+
+        url = profile_options_url(character.id)
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)

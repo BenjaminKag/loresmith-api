@@ -2,6 +2,8 @@
 ViewSet for Character objects.
 """
 from rest_framework import viewsets, permissions
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from django.db.models import Q
 
@@ -59,3 +61,29 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
             ).distinct()
 
         return self.apply_tag_filters(queryset)
+
+    @action(detail=True, methods=["get"], url_path="profile-options")
+    def profile_options(self, request, pk=None):
+        """Return grouped trait options for a character."""
+        character = self.get_object()
+
+        trait_sets = character.profile_trait_sets.all()
+
+        data = []
+
+        for trait_set in trait_sets:
+            traits = trait_set.traits.all()
+
+            data.append({
+                "set": {
+                    "id": trait_set.id,
+                    "name": trait_set.name,
+                },
+                "traits": [
+                    {"key": t.key, "label": t.label}
+                    for t in traits
+                ]
+            })
+
+        serializer = serializers.TraitGroupSerializer(data, many=True)
+        return Response(serializer.data)

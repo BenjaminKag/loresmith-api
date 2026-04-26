@@ -143,6 +143,13 @@ class TraitSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class TraitGroupSerializer(serializers.Serializer):
+    """Grouped traits by trait set."""
+
+    set = serializers.DictField()
+    traits = serializers.ListField()
+
+
 class TagSerializer(serializers.ModelSerializer):
     """Serializer for Tag model."""
 
@@ -429,10 +436,12 @@ class CharacterSerializer(TagNamesMixin, serializers.ModelSerializer):
             invalid_keys = incoming_keys - valid_keys
 
             if invalid_keys:
+                allowed_keys_sorted = sorted(valid_keys)
+
                 raise serializers.ValidationError({
                     "profile": (
-                        f"Invalid trait keys: {list(invalid_keys)}. "
-                        "All profile fields must be defined as traits."
+                        f"Invalid trait(s): {sorted(invalid_keys)}. "
+                        f"Allowed traits: {allowed_keys_sorted}"
                     )
                 })
 
@@ -473,10 +482,15 @@ class CharacterSerializer(TagNamesMixin, serializers.ModelSerializer):
                     invalid_sets = profile_set_ids - allowed_set_ids
 
                     if invalid_sets:
+                        invalid_set_names = [
+                            ts.name for ts in profile_trait_sets
+                            if ts.id in invalid_sets
+                        ]
+
                         raise serializers.ValidationError({
                             "profile_trait_sets": (
-                                "Selected trait sets are not "
-                                "allowed by the character's stories."
+                                "Trait sets not allowed by stories: "
+                                f"{invalid_set_names}"
                             )
                         })
 
