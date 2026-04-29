@@ -1,15 +1,24 @@
 """
 ViewSet for Character objects.
 """
-from rest_framework import viewsets, permissions
+from rest_framework import (
+    viewsets,
+    permissions,
+    status,
+)
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 
 from core import models, serializers
 from core.mixins import TagFilterMixin
 from core.permissions import IsOwnerOrReadOnly
+from core.services.character_profile_generator import (
+    CharacterProfileGenerator,
+)
+from core.services.ai_client import AiServiceError
 
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
@@ -87,3 +96,68 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
 
         serializer = serializers.TraitGroupSerializer(data, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request={
+            "type": "object",
+            "properties": {
+                "include_story_context": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Whether to include related story "
+                        "context in AI generation."
+                    ),
+                }
+            },
+            "required": [],
+        },
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "profile": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
+                    },
+                    "meta": {
+                        "type": "object",
+                    },
+                },
+            }
+        },
+        description=(
+            "Generate a suggested profile for an existing character. "
+            "The result is not saved automatically. "
+            "Only the character owner can use this action."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="generate-profile")
+    def generate_profile(self, request, pk=None):
+        character = get_object_or_404(
+            models.Character.objects.filter(owner=request.user),
+            pk=pk,
+        )
+
+        include_story_context = request.data.get(
+            "include_story_context",
+            False,
+        )
+
+        generator = CharacterProfileGenerator()
+
+        try:
+            result = generator.generate(
+                character,
+                include_story_context=include_story_context,
+            )
+        except AiServiceError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result)
