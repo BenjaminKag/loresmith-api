@@ -47,19 +47,21 @@ class StoryAIApiTests(APITestCase):
         self.user = create_user()
         self.client.force_authenticate(self.user)
 
-    @mock.patch("core.views.story.LoreAIService")
-    def test_owner_can_analyze_story(self, mock_ai_service_cls):
+    @mock.patch("core.views.story.StoryAnalysisGenerator")
+    def test_owner_can_analyze_story(self, mock_generator_cls):
         """Owner can call /analyze and gets structured response."""
         story = create_story(owner=self.user)
 
-        mock_service = mock_ai_service_cls.return_value
-        mock_service.analyze_text.return_value = {
+        mock_generator = mock_generator_cls.return_value
+        mock_generator.generate.return_value = {
             "summary": "AI summary",
             "themes": ["theme1"],
             "tone": "serious",
             "strengths": ["strong point"],
             "weaknesses": ["weak point"],
             "suggestions": ["do X"],
+            "consistency_notes": ["note"],
+            "open_questions": ["question"],
             "meta": {"ai_mode": "live", "model": "test-model"},
         }
 
@@ -69,7 +71,7 @@ class StoryAIApiTests(APITestCase):
         assert res.data["entity_id"] == story.id
         assert res.data["summary"] == "AI summary"
         assert res.data["themes"] == ["theme1"]
-        mock_service.analyze_text.assert_called_once()
+        mock_generator.generate.assert_called_once()
 
     def test_anonymous_cannot_analyze(self):
         """Unauthenticated user cannot access the analyze endpoint."""
@@ -100,7 +102,10 @@ class StoryAIApiTests(APITestCase):
         LORESMITH_AI_ENABLED=False,
         OPENAI_API_KEY="",  # simulate "no key" as well
     )
-    @mock.patch("core.services.ai_client.LoreAIService._mock_response")
+    @mock.patch(
+        "core.services.story_analysis_generator."
+        "StoryAnalysisGenerator._mock_response"
+    )
     def test_ai_uses_mock_mode_when_disabled(self, mock_mock_response):
         """AI should fall back to mock mode when disabled or no API key."""
         story = create_story(owner=self.user)
@@ -112,6 +117,8 @@ class StoryAIApiTests(APITestCase):
             "strengths": ["strength"],
             "weaknesses": ["weakness"],
             "suggestions": ["suggestion"],
+            "consistency_notes": ["note"],
+            "open_questions": ["question"],
             "meta": {
                 "ai_mode": "mock",
                 "model": None,
@@ -143,16 +150,16 @@ class StoryAIApiTests(APITestCase):
         assert res.status_code == status.HTTP_400_BAD_REQUEST
         assert "Nothing to analyze" in res.data["detail"]
 
-    @mock.patch("core.views.story.LoreAIService")
+    @mock.patch("core.views.story.StoryAnalysisGenerator")
     def test_analyze_returns_429_when_daily_budget_exceeded(
         self,
-        mock_ai_service_class,
+        mock_generator_cls,
     ):
         """Return 429 when AI daily budget is exceeded."""
         story = create_story(owner=self.user)
 
-        mock_service = mock_ai_service_class.return_value
-        mock_service.analyze_text.side_effect = DailyBudgetExceeded(
+        mock_generator = mock_generator_cls.return_value
+        mock_generator.generate.side_effect = DailyBudgetExceeded(
             "AI daily budget or rate limit."
         )
 
@@ -161,16 +168,16 @@ class StoryAIApiTests(APITestCase):
         assert res.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert "budget" in res.data["detail"].lower()
 
-    @mock.patch("core.views.story.LoreAIService")
+    @mock.patch("core.views.story.StoryAnalysisGenerator")
     def test_analyze_returns_503_when_ai_service_fails(
         self,
-        mock_ai_service_class,
+        mock_generator_cls,
     ):
         """Return 503 when AI service raises an error."""
         story = create_story(owner=self.user)
 
-        mock_service = mock_ai_service_class.return_value
-        mock_service.analyze_text.side_effect = AiServiceError(
+        mock_generator = mock_generator_cls.return_value
+        mock_generator.generate.side_effect = AiServiceError(
             "AI service unavailable."
         )
 
@@ -183,24 +190,26 @@ class StoryAIApiTests(APITestCase):
             "core.throttling.AIUserThrottle.get_rate",
             return_value="2/min"
     )
-    @mock.patch("core.views.story.LoreAIService")
+    @mock.patch("core.views.story.StoryAnalysisGenerator")
     def test_analyze_is_rate_limited_after_too_many_calls(
         self,
-        mock_ai_service_class,
+        mock_generator_cls,
         _mock_get_rate,
     ):
         """User should be throttled on /analyze after exceeding the rate."""
         story = create_story(owner=self.user)
         url = analyze_url(story.id)
 
-        mock_service = mock_ai_service_class.return_value
-        mock_service.analyze_text.return_value = {
+        mock_generator = mock_generator_cls.return_value
+        mock_generator.generate.return_value = {
             "summary": "AI summary",
             "themes": ["t"],
             "tone": "neutral",
             "strengths": [],
             "weaknesses": [],
             "suggestions": [],
+            "consistency_notes": [],
+            "open_questions": [],
             "meta": {"ai_mode": "live", "model": "test-model"},
         }
 

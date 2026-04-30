@@ -651,3 +651,37 @@ class Story(ImageCleanupMixin, models.Model):
                 trait_set__in=trait_sets
             ).values_list("key", flat=True)
         )
+
+
+class StoryAnalysis(models.Model):
+    """Stored AI analysis result for a story input snapshot."""
+
+    story = models.ForeignKey(
+        Story,
+        on_delete=models.CASCADE,
+        related_name="analyses",
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+    )
+    input_hash = models.CharField(max_length=64)
+    result = models.JSONField()
+    ai_mode = models.CharField(max_length=20)
+    model = models.CharField(max_length=100, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["story", "owner", "input_hash"],
+                name="unique_story_analysis_per_input",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["story", "owner", "input_hash"]),
+        ]
+
+    def __str__(self):
+        return f"Analysis for {self.story.title} ({self.input_hash[:8]})"

@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict
 import logging
-import json
 
 from django.conf import settings
 from django.core.cache import cache
@@ -76,14 +75,18 @@ def add_daily_tokens_used(tokens: int) -> None:
 
 class LoreAIService:
     """
-    Main entrypoint for AI analysis.
+    Shared AI infrastructure service.
 
-    Usage:
-        service = LoreAIService()
-        result = service.analyze_text(full_text)
+    Handles:
+    - AI configuration
+    - OpenAI client initialization
+    - mock-mode detection
+    - daily token budget checks
+    - JSON-mode OpenAI calls
+    - token usage tracking
 
-    Returns a dict with:
-        summary, themes, tone, strengths, weaknesses, suggestions, meta
+    Feature-specific services are responsible for building prompts,
+    mock responses, and normalizing outputs.
     """
 
     def __init__(self) -> None:
@@ -98,9 +101,10 @@ class LoreAIService:
     # pylint: disable=unused-private-member
     def _check_enabled(self) -> None:
         """
-        Ensure AI is enabled and API key is configured.
-        Currently unused because analyze_text handles mock-mode fallback.
-        Retained for future versions where strict enforcement may return.
+        Raise an error if AI is disabled or no API key is configured.
+
+        Most current features use should_use_mock() instead, because they
+        fall back to mock responses during development.
         """
         if not self.config.enabled:
             raise AiServiceError(
@@ -127,118 +131,51 @@ class LoreAIService:
                 "AI daily token budget exceeded. Try again tomorrow."
             )
 
-    def _build_prompt(self, text: str) -> Dict[str, Any]:
-        """
-        Build system/user messages for the model.
-        """
-
-        system_prompt = (
-            "You are LoreSmith, an assistant that analyzes worldbuilding "
-            "content (stories, characters, locations, factions, items). "
-            "You MUST respond with a single JSON object only. "
-            "Do not include any explanation outside of JSON.\n\n"
-            "The JSON object must have these keys:\n"
-            "- summary (string)\n"
-            "- themes (array of strings)\n"
-            "- tone (string)\n"
-            "- strengths (array of strings)\n"
-            "- weaknesses (array of strings)\n"
-            "- suggestions (array of strings)\n\n"
-            "Keep summaries concise and spoiler-light. Do not invent new lore."
-        )
-
-        user_prompt = (
-            "Analyze the following lore content and fill the JSON fields.\n\n"
-            "Lore content:\n"
-            "----------------------\n"
-            f"{text}"
-        )
-
-        return {
-            "system": system_prompt,
-            "user": user_prompt,
-        }
-
-    def _mock_response(self, text: str) -> Dict[str, Any]:
-        """
-        Cheap, local fake analysis used only to support a 'mock' mode.
-        """
-        snippet = (text[:200] + "...") if len(text) > 200 else text
-
-        return {
-            "summary": "AI is not available. This is a placeholder summary.",
-            "themes": ["mock-theme"],
-            "tone": "neutral",
-            "strengths": [
-                "Mock analysis enabled so development can proceed "
-                "without real AI calls."
-            ],
-            "weaknesses": [
-                "This feedback is not based on the actual content."
-            ],
-            "suggestions": [
-                "Configure OPENAI_API_KEY and LORESMITH_AI_ENABLED=true "
-                "to enable real analysis."
-            ],
-            "meta": {
-                "ai_mode": "mock",
-                "model": None,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "total_tokens": 0,
-            },
-            "snippet": snippet,
-        }
-
     # ---------- public API ----------
 
-    def analyze_text(self, text: str) -> Dict[str, Any]:
+    def should_use_mock(self) -> bool:
+        """Return whether feature services should use mock mode."""
+        return not self.config.enabled or not self._has_key
+
+    def generate_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.4,
+    ) -> Dict[str, Any]:
         """
-        Analyze arbitrary lore text and return a structured dict.
+        Generate a JSON response from system/user prompts.
 
-        The caller (view) is responsible for attaching entity_type,
-        entity_id, etc., on top of this result.
+        Feature-specific services are responsible for:
+        - building prompts
+        - deciding when to use mock mode
+        - normalizing the parsed response
         """
-        text = (text or "").strip()
-        if not text:
-            raise AiServiceError("No content provided for analysis.")
-
-        # enforce character limit before sending to the model
-        if len(text) > self.config.max_input_chars:
-            text = text[: self.config.max_input_chars]
-
         if not self.config.enabled or not self._has_key:
-            logger.info(
-                "Using mock AI response "
-                "(AI disabled or missing OPENAI_API_KEY)."
+            raise AiServiceError(
+                "AI is disabled or OPENAI_API_KEY is not configured."
             )
-            return self._mock_response(text)
 
-        # From here on: REAL OpenAI path only
         self._check_daily_budget()
 
         if not self.client:
-            # Should not happen if config is correct, but safety net
             raise AiServiceError("AI client is not initialized.")
-
-        prompts = self._build_prompt(text)
 
         try:
             response = self.client.chat.completions.create(
                 model=self.config.model,
                 messages=[
-                    {"role": "system", "content": prompts["system"]},
-                    {"role": "user", "content": prompts["user"]},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=self.config.max_output_tokens,
-                temperature=0.4,
+                temperature=temperature,
                 response_format={"type": "json_object"},
             )
         except OpenAIError as exc:
             logger.exception("OpenAI chat.completions failed")
-            raise AiServiceError("AI analysis failed.") from exc
+            raise AiServiceError("AI generation failed.") from exc
 
-        # usage info
         usage = getattr(response, "usage", None)
         prompt_tokens = getattr(usage, "prompt_tokens", None)
         completion_tokens = getattr(usage, "completion_tokens", None)
@@ -257,167 +194,10 @@ class LoreAIService:
                 self.config.daily_token_budget,
             )
 
-        # JSON-mode parsed response
-        parsed = response.choices[0].message.parsed
-
-        # Build final result with meta
-        result: Dict[str, Any] = {
-            "summary": parsed.get("summary", "").strip(),
-            "themes": parsed.get("themes", []),
-            "tone": parsed.get("tone", "").strip(),
-            "strengths": parsed.get("strengths", []),
-            "weaknesses": parsed.get("weaknesses", []),
-            "suggestions": parsed.get("suggestions", []),
-            "meta": {
-                "ai_mode": "live",
-                "model": self.config.model,
-                "input_tokens": prompt_tokens,
-                "output_tokens": completion_tokens,
-                "total_tokens": total_tokens,
-            },
-        }
-
-        return result
-
-    # ---------- character profile generation ----------
-
-    def _build_character_profile_prompt(self, character_data: Dict[str, Any]):
-        """Build system/user messages for character profile generation."""
-
-        system_prompt = (
-            "You are LoreSmith, a worldbuilding assistant.\n"
-            "Generate a structured character profile from "
-            "the provided character data.\n\n"
-            "Rules:\n"
-            "- Return ONLY a single JSON object.\n"
-            "- Do not include explanations outside JSON.\n"
-            "- Do not invent trait keys.\n"
-            "- Use ONLY the allowed trait keys provided.\n"
-            "- If the description does not contain "
-            "enough information for a trait, "
-            "use a reasonable concise value like 'Unknown', "
-            "'Unclear', or 'Not specified'.\n\n"
-            "The JSON object must match this structure:\n"
-            "{\n"
-            '  "profile": {\n'
-            '    "trait_set_slug": {\n'
-            '      "trait_key": "value"\n'
-            "    }\n"
-            "  }\n"
-            "}"
-        )
-
-        user_prompt = (
-            "Generate a character profile for this character.\n\n"
-            f"{json.dumps(character_data, indent=2)}"
-        )
-
-        return {
-            "system": system_prompt,
-            "user": user_prompt,
-        }
-
-    def _mock_character_profile_response(
-        self,
-        character_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Return a mock character profile using only allowed trait keys."""
-        profile = {}
-
-        for trait_set in character_data.get("allowed_trait_sets", []):
-            set_key = trait_set["key"]
-
-            profile[set_key] = {
-                trait["key"]: "Medium"
-                for trait in trait_set.get("traits", [])
-            }
-
-        return {
-            "profile": profile,
-            "meta": {
-                "ai_mode": "mock",
-                "model": None,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "total_tokens": 0,
-            },
-        }
-
-    def _truncate_character_data(
-        self,
-        character_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Truncate large fields (like description) to stay within limits.
-        """
-        max_chars = self.config.max_input_chars
-
-        data_copy = dict(character_data)
-
-        # Reserve space for other fields (traits, JSON, etc.)
-        description_limit = int(max_chars * 0.6)
-
-        description = data_copy.get("description", "")
-        if description and len(description) > description_limit:
-            data_copy["description"] = description[:description_limit]
-
-        return data_copy
-
-    def generate_character_profile(
-        self,
-        character_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Generate a structured character profile from character data."""
-        if not character_data.get("allowed_trait_sets"):
-            raise AiServiceError(
-                "No trait sets provided for profile generation."
-            )
-
-        character_data = self._truncate_character_data(character_data)
-
-        if not self.config.enabled or not self._has_key:
-            logger.info(
-                "Using mock AI character profile response "
-                "(AI disabled or missing OPENAI_API_KEY)."
-            )
-            return self._mock_character_profile_response(character_data)
-
-        self._check_daily_budget()
-
-        if not self.client:
-            raise AiServiceError("AI client is not initialized.")
-
-        prompts = self._build_character_profile_prompt(character_data)
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": prompts["system"]},
-                    {"role": "user", "content": prompts["user"]},
-                ],
-                max_tokens=self.config.max_output_tokens,
-                temperature=0.3,
-                response_format={"type": "json_object"},
-            )
-        except OpenAIError as exc:
-            logger.exception("OpenAI character profile generation failed")
-            raise AiServiceError(
-                "AI character profile generation failed."
-            ) from exc
-
-        usage = getattr(response, "usage", None)
-        prompt_tokens = getattr(usage, "prompt_tokens", None)
-        completion_tokens = getattr(usage, "completion_tokens", None)
-        total_tokens = getattr(usage, "total_tokens", None)
-
-        if total_tokens is not None:
-            add_daily_tokens_used(total_tokens)
-
         parsed = response.choices[0].message.parsed
 
         return {
-            "profile": parsed.get("profile", {}),
+            "data": parsed,
             "meta": {
                 "ai_mode": "live",
                 "model": self.config.model,

@@ -670,6 +670,13 @@ class StoryAIAnalysisMetaSerializer(serializers.Serializer):
     output_tokens = serializers.IntegerField(allow_null=True, required=False)
     total_tokens = serializers.IntegerField(allow_null=True, required=False)
 
+    story_id = serializers.IntegerField()
+    story_title = serializers.CharField()
+    input_hash = serializers.CharField()
+    cached = serializers.BooleanField()
+    analysis_id = serializers.IntegerField()
+    notes = serializers.CharField()
+
 
 class StoryAIAnalysisSerializer(serializers.Serializer):
     entity_type = serializers.CharField()
@@ -677,11 +684,32 @@ class StoryAIAnalysisSerializer(serializers.Serializer):
     entity_label = serializers.CharField()
 
     summary = serializers.CharField()
-    themes = serializers.ListField(child=serializers.CharField())
-    tone = serializers.CharField()
-    strengths = serializers.ListField(child=serializers.CharField())
-    weaknesses = serializers.ListField(child=serializers.CharField())
-    suggestions = serializers.ListField(child=serializers.CharField())
+    themes = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
+    tone = serializers.CharField(read_only=True)
+    strengths = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
+    weaknesses = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
+    suggestions = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
+    consistency_notes = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
+
+    open_questions = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
 
     meta = StoryAIAnalysisMetaSerializer()
 

@@ -30,10 +30,10 @@ from drf_spectacular.utils import (
 )
 
 from core.services.ai_client import (
-    LoreAIService,
     AiServiceError,
     DailyBudgetExceeded
 )
+from core.services.story_analysis_generator import StoryAnalysisGenerator
 from core.throttling import AIUserThrottle
 
 
@@ -88,15 +88,9 @@ class StoryViewSet(TagFilterMixin, viewsets.ModelViewSet):
     def analyze(self, request, pk=None):
         story = self.get_object()
 
-        # Build the text to send to AI
-        data_parts = [
-            story.summary or "",
-            story.body or "",
-        ]
-
-        data = "\n\n".join(p.strip() for p in data_parts if p and p.strip())
-
-        if not data:
+        if not (
+            story.summary or ""
+        ).strip() and not (story.body or "").strip():
             return Response(
                 {
                     "detail": "Nothing to analyze "
@@ -105,12 +99,10 @@ class StoryViewSet(TagFilterMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        text = f"{story.title.strip()}\n\n{data}"
-
-        service = LoreAIService()
+        generator = StoryAnalysisGenerator()
 
         try:
-            analysis = service.analyze_text(text)
+            analysis = generator.generate(story)
         except DailyBudgetExceeded as exc:
             return Response(
                 {"detail": str(exc)},
@@ -132,6 +124,8 @@ class StoryViewSet(TagFilterMixin, viewsets.ModelViewSet):
             "strengths": analysis["strengths"],
             "weaknesses": analysis["weaknesses"],
             "suggestions": analysis["suggestions"],
+            "consistency_notes": analysis["consistency_notes"],
+            "open_questions": analysis["open_questions"],
             "meta": analysis["meta"],
         }
 

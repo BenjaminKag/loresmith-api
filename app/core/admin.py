@@ -80,6 +80,51 @@ class StoryAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ("title",)}
 
 
+@admin.register(models.StoryAnalysis)
+class StoryAnalysisAdmin(admin.ModelAdmin):
+    """Admin for stored story AI analyses."""
+
+    list_display = (
+        "id",
+        "story",
+        "owner",
+        "ai_mode",
+        "model",
+        "input_hash_short",
+        "created_at",
+    )
+    list_filter = (
+        "ai_mode",
+        "model",
+        "created_at",
+    )
+    search_fields = (
+        "story__title",
+        "owner__email",
+        "input_hash",
+    )
+    raw_id_fields = (
+        "story",
+        "owner",
+    )
+    readonly_fields = (
+        "story",
+        "owner",
+        "input_hash",
+        "result",
+        "ai_mode",
+        "model",
+        "created_at",
+    )
+    ordering = ("-created_at",)
+
+    def input_hash_short(self, obj):
+        """Return a short version of the input hash."""
+        return obj.input_hash[:8]
+
+    input_hash_short.short_description = "Input hash"
+
+
 @admin.register(models.Tag)
 class TagAdmin(admin.ModelAdmin):
     list_display = ("name", "owner", "created_at")
