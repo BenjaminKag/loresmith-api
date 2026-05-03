@@ -2,12 +2,14 @@
 Story analysis generation service.
 
 This service generates structured AI analysis for an existing story.
-It does not save anything automatically.
+It stores the latest StoryAnalysis record for caching, and removes older
+analysis records according to the cleanup policy.
 """
 from typing import Any, Dict
 import hashlib
 
 from core.services.ai_client import LoreAIService, AiServiceError
+from core.services.story_analysis_cleanup import cleanup_old_story_analyses
 from core import models
 
 
@@ -53,6 +55,8 @@ class StoryAnalysisGenerator:
             ai_mode=response_data["meta"].get("ai_mode", ""),
             model=response_data["meta"].get("model"),
         )
+
+        cleanup_old_story_analyses(story=story)
 
         response_data["meta"]["cached"] = False
         response_data["meta"]["analysis_id"] = analysis_record.id

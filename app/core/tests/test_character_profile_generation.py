@@ -12,6 +12,7 @@ from rest_framework import status
 from core import models
 from core.services.ai_client import AiServiceError
 from core.services.character_profile_generator import CharacterProfileGenerator
+from core.services import ai_idempotency
 
 from unittest import mock
 import uuid
@@ -34,8 +35,31 @@ class CharacterProfileGenerationApiTests(APITestCase):
     """Tests for generating character profiles with AI."""
 
     def setUp(self):
-        self.user = create_user(email="test@example.com")
+        self.user = create_user(
+            email="test@example.com",
+            is_premium=True,
+        )
         self.client.force_authenticate(self.user)
+
+    def _create_character_with_trait_set(self):
+        """Create a character with one selected trait set."""
+        trait_set = models.TraitSet.objects.create(
+            name="Physical",
+            owner=self.user,
+        )
+        models.Trait.objects.create(
+            trait_set=trait_set,
+            label="Age",
+        )
+
+        character = models.Character.objects.create(
+            name="Xiao",
+            description="A vigilant yaksha.",
+            owner=self.user,
+        )
+        character.profile_trait_sets.set([trait_set])
+
+        return character
 
     def test_owner_can_generate_profile(self):
         """Owner can generate a suggested profile for their character."""
@@ -229,6 +253,151 @@ class CharacterProfileGenerationApiTests(APITestCase):
             res.data["detail"],
             "No trait sets provided for profile generation.",
         )
+
+    def test_non_premium_user_cannot_generate_profile(self):
+        """Non-premium users cannot generate character profiles."""
+        self.user.is_premium = False
+        self.user.save()
+
+        self.client.force_authenticate(self.user)
+
+        character = models.Character.objects.create(
+            name="Xiao",
+            description="A vigilant yaksha.",
+            owner=self.user,
+        )
+
+        res = self.client.post(generate_profile_url(character.id))
+
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            str(res.data["detail"]),
+            "AI features require a premium plan.",
+        )
+
+    def test_generate_profile_creates_ai_request_log(self):
+        """Generate profile should create a completed AI request log."""
+        character = self._create_character_with_trait_set()
+
+        res = self.client.post(generate_profile_url(character.id))
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        request_log = models.AIRequestLog.objects.get(
+            owner=self.user,
+            endpoint_type=models.AIEndpointType.CHARACTER_PROFILE,
+        )
+
+        self.assertEqual(
+            request_log.status,
+            models.AIRequestStatus.COMPLETED,
+        )
+        self.assertEqual(
+            request_log.response_payload["profile"], res.data["profile"]
+        )
+        self.assertIsNotNone(request_log.completed_at)
+
+    def test_duplicate_generate_profile_returns_deduped_response(self):
+        """Duplicate generate-profile request should reuse recent result."""
+        character = self._create_character_with_trait_set()
+
+        first_res = self.client.post(generate_profile_url(character.id))
+        second_res = self.client.post(generate_profile_url(character.id))
+
+        self.assertEqual(first_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_res.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(models.AIRequestLog.objects.count(), 1)
+        self.assertTrue(second_res.data["meta"]["deduped"])
+        self.assertEqual(second_res.data["profile"], first_res.data["profile"])
+
+    def test_duplicate_in_progress_generate_profile_returns_429(self):
+        """
+        Generate profile should return 429 if same request is in progress.
+        """
+        character = self._create_character_with_trait_set()
+
+        request_payload = {
+            "character_id": character.id,
+            "character_input": {
+                "name": character.name,
+                "description": character.description,
+                "profile_trait_sets": [
+                    {
+                        "id": trait_set.id,
+                        "name": trait_set.name,
+                        "traits": [
+                            {
+                                "key": trait.key,
+                                "label": trait.label,
+                            }
+                            for trait in trait_set.traits.all()
+                        ],
+                    }
+                    for trait_set in (
+                        character.profile_trait_sets
+                        .prefetch_related("traits")
+                        .all()
+                    )
+                ],
+            },
+            "settings": {
+                "endpoint_type": models.AIEndpointType.CHARACTER_PROFILE,
+                "include_story_context": False,
+            },
+        }
+
+        ai_idempotency.create_in_progress_request(
+            user=self.user,
+            endpoint_type=models.AIEndpointType.CHARACTER_PROFILE,
+            request_payload=request_payload,
+        )
+
+        res = self.client.post(generate_profile_url(character.id))
+
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(
+            res.data["detail"],
+            (
+                "A matching character profile generation request "
+                "is already in progress."
+            ),
+        )
+        self.assertEqual(models.AIRequestLog.objects.count(), 1)
+
+    def test_generate_profile_creates_ai_usage_log(self):
+        """Generate profile should create an AI usage log."""
+        character = self._create_character_with_trait_set()
+
+        res = self.client.post(generate_profile_url(character.id))
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        usage_log = models.AIUsageLog.objects.get(
+            owner=self.user,
+            endpoint_type=models.AIEndpointType.CHARACTER_PROFILE,
+        )
+
+        self.assertEqual(usage_log.ai_mode, res.data["meta"]["ai_mode"])
+        self.assertEqual(usage_log.model, res.data["meta"]["model"])
+        self.assertEqual(
+            usage_log.total_tokens,
+            res.data["meta"]["total_tokens"],
+        )
+        self.assertIsNotNone(usage_log.request_log)
+
+    def test_duplicate_generate_profile_does_not_create_new_usage_log(self):
+        """Deduped generate-profile response should not create usage again."""
+        character = self._create_character_with_trait_set()
+
+        first_res = self.client.post(generate_profile_url(character.id))
+        second_res = self.client.post(generate_profile_url(character.id))
+
+        self.assertEqual(first_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(second_res.data["meta"]["deduped"])
+
+        self.assertEqual(models.AIUsageLog.objects.count(), 1)
 
 
 class CharacterProfileGeneratorServiceTests(TestCase):

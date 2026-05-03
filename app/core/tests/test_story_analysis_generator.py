@@ -217,7 +217,7 @@ class StoryAnalysisGeneratorTests(TestCase):
 
         second_result = self.generator.generate(story)
 
-        self.assertEqual(models.StoryAnalysis.objects.count(), 2)
+        self.assertEqual(models.StoryAnalysis.objects.count(), 1)
         self.assertNotEqual(
             first_result["meta"]["analysis_id"],
             second_result["meta"]["analysis_id"],
@@ -253,7 +253,7 @@ class StoryAnalysisGeneratorTests(TestCase):
 
         second_result = self.generator.generate(part)
 
-        self.assertEqual(models.StoryAnalysis.objects.count(), 2)
+        self.assertEqual(models.StoryAnalysis.objects.count(), 1)
         self.assertNotEqual(
             first_result["meta"]["analysis_id"],
             second_result["meta"]["analysis_id"],

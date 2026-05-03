@@ -685,3 +685,103 @@ class StoryAnalysis(models.Model):
 
     def __str__(self):
         return f"Analysis for {self.story.title} ({self.input_hash[:8]})"
+
+
+class AIEndpointType(models.TextChoices):
+    STORY_ANALYSIS = "story_analysis", "Story Analysis"
+    CHARACTER_PROFILE = "character_profile", "Character Profile"
+
+
+class AIRequestStatus(models.TextChoices):
+    IN_PROGRESS = "in_progress", "In Progress"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+
+
+class AIRequestLog(models.Model):
+    """Tracks AI requests for idempotency, dedupe, and debugging."""
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="ai_request_logs",
+    )
+    endpoint_type = models.CharField(
+        max_length=50,
+        choices=AIEndpointType.choices,
+    )
+    idempotency_key = models.CharField(max_length=64, unique=True)
+    content_hash = models.CharField(max_length=64)
+    status = models.CharField(
+        max_length=20,
+        choices=AIRequestStatus.choices,
+        default=AIRequestStatus.IN_PROGRESS,
+    )
+    request_payload = models.JSONField(default=dict, blank=True)
+    response_payload = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["owner", "endpoint_type", "content_hash"]),
+            models.Index(fields=["idempotency_key"]),
+            models.Index(fields=["status", "created_at"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.endpoint_type} request for {self.owner} "
+            f"({self.status})"
+        )
+
+
+class AIUsageLog(models.Model):
+    """Tracks token usage and estimated cost for AI requests."""
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="ai_usage_logs",
+    )
+    request_log = models.ForeignKey(
+        "AIRequestLog",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="usage_logs",
+    )
+    endpoint_type = models.CharField(
+        max_length=50,
+        choices=AIEndpointType.choices,
+    )
+    ai_mode = models.CharField(max_length=20)
+    model = models.CharField(max_length=100, blank=True, null=True)
+
+    input_tokens = models.PositiveIntegerField(default=0)
+    output_tokens = models.PositiveIntegerField(default=0)
+    total_tokens = models.PositiveIntegerField(default=0)
+
+    estimated_cost_usd = models.DecimalField(
+        max_digits=10,
+        decimal_places=6,
+        default=0,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["owner", "endpoint_type", "created_at"]),
+            models.Index(fields=["ai_mode", "created_at"]),
+            models.Index(fields=["model", "created_at"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.endpoint_type} usage for {self.owner} "
+            f"({self.total_tokens} tokens)"
+        )

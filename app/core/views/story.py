@@ -12,9 +12,18 @@ from rest_framework.response import Response
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 
+from drf_spectacular.utils import (
+    extend_schema,
+    OpenApiResponse,
+    OpenApiParameter
+)
+
 from core import models, serializers
 from core.mixins import TagFilterMixin
-from core.permissions import IsOwnerOrReadOnly
+from core.permissions import IsOwnerOrReadOnly, IsPremiumUserForAI
+from core.services import ai_idempotency, ai_usage
+from core.services.story_analysis_generator import StoryAnalysisGenerator
+from core.throttling import AIUserThrottle
 
 from core.utils import (
     get_visible_story_subtree,
@@ -23,18 +32,10 @@ from core.utils import (
     get_story_wiki_metadata,
 )
 
-from drf_spectacular.utils import (
-    extend_schema,
-    OpenApiResponse,
-    OpenApiParameter
-)
-
 from core.services.ai_client import (
     AiServiceError,
     DailyBudgetExceeded
 )
-from core.services.story_analysis_generator import StoryAnalysisGenerator
-from core.throttling import AIUserThrottle
 
 
 @extend_schema(
@@ -84,6 +85,11 @@ class StoryViewSet(TagFilterMixin, viewsets.ModelViewSet):
         methods=["post"],
         url_path="analyze",
         throttle_classes=[AIUserThrottle],
+        permission_classes=[
+            permissions.IsAuthenticated,
+            IsOwnerOrReadOnly,
+            IsPremiumUserForAI,
+        ],
     )
     def analyze(self, request, pk=None):
         story = self.get_object()
@@ -99,35 +105,83 @@ class StoryViewSet(TagFilterMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        request_payload = {
+            "story_id": story.id,
+            "story_input": {
+                "title": story.title,
+                "summary": story.summary,
+                "body": story.body,
+                "parent": {
+                    "id": story.parent.id,
+                    "title": story.parent.title,
+                    "summary": story.parent.summary,
+                } if story.parent else None,
+            },
+            "settings": {
+                "endpoint_type": models.AIEndpointType.STORY_ANALYSIS,
+            },
+        }
+
         generator = StoryAnalysisGenerator()
 
         try:
+            request_log, created = (
+                ai_idempotency.create_in_progress_request(
+                    user=request.user,
+                    endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+                    request_payload=request_payload,
+                )
+            )
+        except ai_idempotency.AIRequestInProgress:
+            return Response(
+                {
+                    "detail": (
+                        "A matching story analysis request is already "
+                        "in progress."
+                    )
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        if not created:
+            response_data = dict(request_log.response_payload)
+            meta = dict(response_data.get("meta", {}))
+            meta["deduped"] = True
+            response_data["meta"] = meta
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        try:
             analysis = generator.generate(story)
+            response_data = self._build_story_analysis_response_data(
+                story,
+                analysis,
+            )
+            ai_idempotency.mark_request_completed(
+                request_log,
+                response_data,
+            )
+
+            ai_usage.record_ai_usage(
+                user=request.user,
+                endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+                meta=response_data.get("meta", {}),
+                request_log=request_log,
+            )
+
         except DailyBudgetExceeded as exc:
+            ai_idempotency.mark_request_failed(request_log, str(exc))
             return Response(
                 {"detail": str(exc)},
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
+
         except AiServiceError as exc:
+            ai_idempotency.mark_request_failed(request_log, str(exc))
             return Response(
                 {"detail": str(exc)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-
-        response_data = {
-            "entity_type": "story",
-            "entity_id": story.id,
-            "entity_label": story.title,
-            "summary": analysis["summary"],
-            "themes": analysis["themes"],
-            "tone": analysis["tone"],
-            "strengths": analysis["strengths"],
-            "weaknesses": analysis["weaknesses"],
-            "suggestions": analysis["suggestions"],
-            "consistency_notes": analysis["consistency_notes"],
-            "open_questions": analysis["open_questions"],
-            "meta": analysis["meta"],
-        }
 
         return Response(response_data, status=status.HTTP_200_OK)
 
@@ -433,3 +487,20 @@ class StoryViewSet(TagFilterMixin, viewsets.ModelViewSet):
         )
 
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def _build_story_analysis_response_data(self, story, analysis):
+        """Build API response data for story AI analysis."""
+        return {
+            "entity_type": "story",
+            "entity_id": story.id,
+            "entity_label": story.title,
+            "summary": analysis["summary"],
+            "themes": analysis["themes"],
+            "tone": analysis["tone"],
+            "strengths": analysis["strengths"],
+            "weaknesses": analysis["weaknesses"],
+            "suggestions": analysis["suggestions"],
+            "consistency_notes": analysis["consistency_notes"],
+            "open_questions": analysis["open_questions"],
+            "meta": analysis["meta"],
+        }

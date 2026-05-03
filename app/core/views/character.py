@@ -14,7 +14,8 @@ from django.shortcuts import get_object_or_404
 
 from core import models, serializers
 from core.mixins import TagFilterMixin
-from core.permissions import IsOwnerOrReadOnly
+from core.permissions import IsOwnerOrReadOnly, IsPremiumUserForAI
+from core.services import ai_idempotency, ai_usage
 from core.services.character_profile_generator import (
     CharacterProfileGenerator,
 )
@@ -135,7 +136,16 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
             "Only the character owner can use this action."
         ),
     )
-    @action(detail=True, methods=["post"], url_path="generate-profile")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="generate-profile",
+        permission_classes=[
+            permissions.IsAuthenticated,
+            IsOwnerOrReadOnly,
+            IsPremiumUserForAI,
+        ],
+    )
     def generate_profile(self, request, pk=None):
         character = get_object_or_404(
             models.Character.objects.filter(owner=request.user),
@@ -147,6 +157,63 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
             False,
         )
 
+        request_payload = {
+            "character_id": character.id,
+            "character_input": {
+                "name": character.name,
+                "description": character.description,
+                "profile_trait_sets": [
+                    {
+                        "id": trait_set.id,
+                        "name": trait_set.name,
+                        "traits": [
+                            {
+                                "key": trait.key,
+                                "label": trait.label,
+                            }
+                            for trait in trait_set.traits.all()
+                        ],
+                    }
+                    for trait_set in (
+                        character.profile_trait_sets
+                        .prefetch_related("traits")
+                        .all()
+                    )
+                ],
+            },
+            "settings": {
+                "endpoint_type": models.AIEndpointType.CHARACTER_PROFILE,
+                "include_story_context": include_story_context,
+            },
+        }
+
+        try:
+            request_log, created = (
+                ai_idempotency.create_in_progress_request(
+                    user=request.user,
+                    endpoint_type=models.AIEndpointType.CHARACTER_PROFILE,
+                    request_payload=request_payload,
+                )
+            )
+        except ai_idempotency.AIRequestInProgress:
+            return Response(
+                {
+                    "detail": (
+                        "A matching character profile generation request "
+                        "is already in progress."
+                    )
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        if not created:
+            response_data = dict(request_log.response_payload)
+            meta = dict(response_data.get("meta", {}))
+            meta["deduped"] = True
+            response_data["meta"] = meta
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
         generator = CharacterProfileGenerator()
 
         try:
@@ -154,7 +221,21 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
                 character,
                 include_story_context=include_story_context,
             )
+
+            ai_idempotency.mark_request_completed(
+                request_log,
+                result,
+            )
+
+            ai_usage.record_ai_usage(
+                user=request.user,
+                endpoint_type=models.AIEndpointType.CHARACTER_PROFILE,
+                meta=result.get("meta", {}),
+                request_log=request_log,
+            )
+
         except AiServiceError as exc:
+            ai_idempotency.mark_request_failed(request_log, str(exc))
             return Response(
                 {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,

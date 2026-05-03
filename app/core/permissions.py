@@ -15,3 +15,16 @@ class IsOwnerOrReadOnly(BasePermission):
             return True
 
         return getattr(obj, "owner", None) == request.user
+
+
+class IsPremiumUserForAI(BasePermission):
+    """Allow access only to premium users for AI endpoints."""
+
+    message = "AI features require a premium plan."
+
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and request.user.is_premium
+        )

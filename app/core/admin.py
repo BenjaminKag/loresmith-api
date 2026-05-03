@@ -146,3 +146,64 @@ class TraitAdmin(admin.ModelAdmin):
     list_filter = ("trait_set",)
     search_fields = ("label", "key")
     readonly_fields = ("key",)
+
+
+@admin.register(models.AIRequestLog)
+class AIRequestLogAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "owner",
+        "endpoint_type",
+        "status",
+        "created_at",
+        "completed_at",
+    ]
+    list_filter = [
+        "endpoint_type",
+        "status",
+        "created_at",
+    ]
+    search_fields = [
+        "owner__email",
+        "endpoint_type",
+        "idempotency_key",
+        "content_hash",
+    ]
+    raw_id_fields = ["owner"]
+    readonly_fields = [
+        "created_at",
+        "updated_at",
+        "completed_at",
+    ]
+
+
+@admin.register(models.AIUsageLog)
+class AIUsageLogAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "owner",
+        "endpoint_type",
+        "ai_mode",
+        "model",
+        "total_tokens",
+        "estimated_cost_usd",
+        "created_at",
+    ]
+    list_filter = [
+        "endpoint_type",
+        "ai_mode",
+        "model",
+        "created_at",
+    ]
+    search_fields = [
+        "owner__email",
+        "endpoint_type",
+        "model",
+    ]
+    raw_id_fields = [
+        "owner",
+        "request_log",
+    ]
+    readonly_fields = [
+        "created_at",
+    ]
