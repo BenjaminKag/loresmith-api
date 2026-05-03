@@ -23,6 +23,11 @@ def generate_profile_url(character_id):
     return reverse("character-generate-profile", args=[character_id])
 
 
+def apply_profile_url(character_id):
+    """Create and return the character apply-profile URL."""
+    return reverse("character-apply-profile", args=[character_id])
+
+
 def create_user(email=None, password="testpass123", **extra):
     """Create and return a user."""
     if email is None:
@@ -398,6 +403,128 @@ class CharacterProfileGenerationApiTests(APITestCase):
         self.assertTrue(second_res.data["meta"]["deduped"])
 
         self.assertEqual(models.AIUsageLog.objects.count(), 1)
+
+    def test_owner_can_apply_generated_profile(self):
+        """Owner can save generated profile data to CharacterProfile."""
+        character = self._create_character_with_trait_set()
+
+        payload = {
+            "profile": {
+                "physical": {
+                    "age": "Medium",
+                },
+            },
+        }
+
+        res = self.client.post(
+            apply_profile_url(character.id),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["profile"], payload["profile"])
+
+        character.refresh_from_db()
+        self.assertEqual(character.profile.data, payload["profile"])
+
+    def test_apply_profile_updates_existing_profile(self):
+        """Applying a profile should replace existing profile data."""
+        character = self._create_character_with_trait_set()
+
+        models.CharacterProfile.objects.create(
+            character=character,
+            data={
+                "physical": {
+                    "age": "Old",
+                },
+            },
+        )
+
+        payload = {
+            "profile": {
+                "physical": {
+                    "age": "Medium",
+                },
+            },
+        }
+
+        res = self.client.post(
+            apply_profile_url(character.id),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        character.refresh_from_db()
+        self.assertEqual(character.profile.data, payload["profile"])
+
+    def test_apply_profile_rejects_invalid_trait_set(self):
+        """Applying profile with an unselected trait set should fail."""
+        character = self._create_character_with_trait_set()
+
+        payload = {
+            "profile": {
+                "magic": {
+                    "element": "Anemo",
+                },
+            },
+        }
+
+        res = self.client.post(
+            apply_profile_url(character.id),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("profile", res.data)
+
+    def test_apply_profile_rejects_invalid_trait_key(self):
+        """Applying profile with invalid trait keys should fail."""
+        character = self._create_character_with_trait_set()
+
+        payload = {
+            "profile": {
+                "physical": {
+                    "element": "Anemo",
+                },
+            },
+        }
+
+        res = self.client.post(
+            apply_profile_url(character.id),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("profile", res.data)
+
+    def test_user_cannot_apply_profile_to_other_users_character(self):
+        """Users cannot save profiles for characters they do not own."""
+        other_user = create_user(email="other@example.com")
+        character = models.Character.objects.create(
+            name="Other Character",
+            owner=other_user,
+        )
+
+        payload = {
+            "profile": {
+                "physical": {
+                    "age": "Medium",
+                },
+            },
+        }
+
+        res = self.client.post(
+            apply_profile_url(character.id),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class CharacterProfileGeneratorServiceTests(TestCase):

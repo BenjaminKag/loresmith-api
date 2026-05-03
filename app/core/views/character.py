@@ -242,3 +242,51 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
             )
 
         return Response(result)
+
+    @extend_schema(
+        request=serializers.CharacterProfileApplySerializer,
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "profile": {"type": "object"},
+                },
+            }
+        },
+        description=(
+            "Save or replace a character profile. "
+            "The submitted profile must use selected trait sets and traits."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="apply-profile",
+        permission_classes=[
+            permissions.IsAuthenticated,
+            IsOwnerOrReadOnly,
+        ],
+    )
+    def apply_profile(self, request, pk=None):
+        """Save or replace a character profile."""
+        character = get_object_or_404(
+            models.Character.objects.filter(owner=request.user),
+            pk=pk,
+        )
+
+        serializer = serializers.CharacterProfileApplySerializer(
+            data=request.data,
+            context={
+                **self.get_serializer_context(),
+                "character": character,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        profile = serializer.save()
+
+        return Response(
+            {
+                "profile": profile.data,
+            },
+            status=status.HTTP_200_OK,
+        )

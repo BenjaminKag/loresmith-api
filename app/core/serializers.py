@@ -524,6 +524,69 @@ class CharacterSerializer(TagNamesMixin, serializers.ModelSerializer):
         return attrs
 
 
+class CharacterProfileApplySerializer(serializers.Serializer):
+    """Serializer for applying/saving structured character profile data."""
+
+    profile = serializers.DictField()
+
+    def validate_profile(self, value):
+        """Validate profile data against the character's selected traits."""
+        character = self.context["character"]
+
+        selected_trait_sets = (
+            character.profile_trait_sets
+            .prefetch_related("traits")
+            .all()
+        )
+
+        valid_trait_sets = {
+            models.slugify_underscore(trait_set.name): {
+                trait.key for trait in trait_set.traits.all()
+            }
+            for trait_set in selected_trait_sets
+        }
+
+        invalid_sets = sorted(
+            set(value.keys()) - set(valid_trait_sets.keys())
+        )
+
+        if invalid_sets:
+            raise serializers.ValidationError(
+                f"Invalid trait set(s): {invalid_sets}."
+            )
+
+        for trait_set_key, traits in value.items():
+            if not isinstance(traits, dict):
+                raise serializers.ValidationError(
+                    f"Profile section '{trait_set_key}' must be an object."
+                )
+
+            valid_trait_keys = valid_trait_sets[trait_set_key]
+            invalid_traits = sorted(
+                set(traits.keys()) - valid_trait_keys
+            )
+
+            if invalid_traits:
+                raise serializers.ValidationError(
+                    f"Invalid trait(s) for '{trait_set_key}': "
+                    f"{invalid_traits}."
+                )
+
+        return value
+
+    def save(self, **kwargs):
+        """Create or update the character profile."""
+        character = self.context["character"]
+        profile_data = self.validated_data["profile"]
+
+        profile, _created = models.CharacterProfile.objects.update_or_create(
+            character=character,
+            defaults={"data": profile_data},
+        )
+
+        return profile
+
+
 class StorySerializer(TagNamesMixin, serializers.ModelSerializer):
     """Serializer for Story model."""
     image = serializers.ImageField(
