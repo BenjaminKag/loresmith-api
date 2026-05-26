@@ -7,7 +7,8 @@ Pillow==10.4.0
 
 psycopg2==2.9.11
 
+gunicorn==23.0.0
+
 drf-spectacular==0.27.2
 
-# OpenAI / ChatGPT API
 openai==2.7.2
