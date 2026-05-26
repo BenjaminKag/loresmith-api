@@ -32,6 +32,33 @@ if ALLOWED_HOSTS_ENV:
 else:
     ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0"]
 
+# Additional security settings for production.
+# These can be configured via environment variables.
+
+# which external domains are allowed to send unsafe requests (POST, PUT, DELETE)
+# when CSRF protection is involved
+CSRF_TRUSTED_ORIGINS_ENV = os.getenv("CSRF_TRUSTED_ORIGINS", "")
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in CSRF_TRUSTED_ORIGINS_ENV.split(",")
+    if origin.strip()
+]
+
+# redirect all HTTP requests to HTTPS when SECURE_SSL_REDIRECT is True
+SECURE_SSL_REDIRECT = (
+    os.getenv("SECURE_SSL_REDIRECT", "False").lower() == "true"
+)
+
+# ensure cookies are only sent over HTTPS when
+# SESSION_COOKIE_SECURE and CSRF_COOKIE_SECURE are True
+SESSION_COOKIE_SECURE = (
+    os.getenv("SESSION_COOKIE_SECURE", "False").lower() == "true"
+)
+
+CSRF_COOKIE_SECURE = (
+    os.getenv("CSRF_COOKIE_SECURE", "False").lower() == "true"
+)
+
 
 # Application definition
 
