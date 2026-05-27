@@ -38,4 +38,4 @@ ENV PATH="/scripts:/py/bin:$PATH"
 
 USER django-user
 
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["sh", "-c", "python manage.py migrate && python manage.py collectstatic --noinput && gunicorn app.wsgi:application --bind 0.0.0.0:8000"]
