@@ -17,6 +17,7 @@ Pillow==10.4.0
 
 # Production server
 gunicorn==23.0.0
+whitenoise==6.8.2
 
 # AWS / S3 media storage
 django-storages==1.14.4
