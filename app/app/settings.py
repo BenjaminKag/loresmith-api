@@ -212,15 +212,33 @@ if USE_S3:
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Cache (Redis) – generic, but ready for Docker `redis` service
-CACHES = {
-    "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://redis:6379/1",
-        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
-        "KEY_PREFIX": os.getenv("CACHE_KEY_PREFIX", "api_template"),
+# Cache
+# Local Docker uses Redis by default.
+# Production can override this to use local memory cache instead.
+CACHE_BACKEND = os.getenv(
+    "CACHE_BACKEND",
+    "django_redis.cache.RedisCache",
+)
+
+if CACHE_BACKEND == "django_redis.cache.RedisCache":
+    CACHES = {
+        "default": {
+            "BACKEND": CACHE_BACKEND,
+            "LOCATION": os.getenv("CACHE_LOCATION", "redis://redis:6379/1"),
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+            "KEY_PREFIX": os.getenv("CACHE_KEY_PREFIX", "api_template"),
+        }
     }
-}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": CACHE_BACKEND,
+            "LOCATION": os.getenv("CACHE_LOCATION", "loresmith-cache"),
+            "KEY_PREFIX": os.getenv("CACHE_KEY_PREFIX", "api_template"),
+        }
+    }
 
 # DRF – generic defaults for an API project
 REST_FRAMEWORK = {
