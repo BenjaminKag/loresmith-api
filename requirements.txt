@@ -1,14 +1,26 @@
+# Core framework
 Django==5.2.8
 djangorestframework==3.16.1
+
+# API filtering and documentation
 django-filter==25.2
-django-redis==5.4.0
-
-Pillow==10.4.0
-
-psycopg2==2.9.11
-
-gunicorn==23.0.0
-
 drf-spectacular==0.27.2
 
+# Database
+psycopg2==2.9.11
+
+# Cache
+django-redis==5.4.0
+
+# Image handling
+Pillow==10.4.0
+
+# Production server
+gunicorn==23.0.0
+
+# AWS / S3 media storage
+django-storages==1.14.4
+boto3==1.35.99
+
+# AI / OpenAI API
 openai==2.7.2

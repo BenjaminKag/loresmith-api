@@ -35,7 +35,7 @@ else:
 # Additional security settings for production.
 # These can be configured via environment variables.
 
-# which external domains are allowed to send unsafe requests (POST, PUT, DELETE)
+# Which external domains are allowed to send unsafe requests (POST, PUT, DELETE)
 # when CSRF protection is involved
 CSRF_TRUSTED_ORIGINS_ENV = os.getenv("CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = [
@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'django_filters',
     'drf_spectacular',
+    'storages',
 ]
 
 MIDDLEWARE = [
@@ -165,6 +166,47 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# File storage settings
+# Use S3 if configured, otherwise default to local filesystem
+USE_S3 = os.getenv("USE_S3", "False").lower() == "true"
+
+if USE_S3:
+    AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME")
+    AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", "il-central-1")
+    AWS_S3_CUSTOM_DOMAIN = os.getenv("AWS_S3_CUSTOM_DOMAIN", "")
+
+    # Cache media files for 1 day (86400 seconds)
+    AWS_S3_OBJECT_PARAMETERS = {
+        "CacheControl": "max-age=86400",
+    }
+
+    # Access Control List
+    AWS_DEFAULT_ACL = None
+    # Generate normal public-style media URLs, not temporary signed URLs
+    AWS_QUERYSTRING_AUTH = False
+
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        },
+        "staticfiles": {
+            "BACKEND": (
+                "django.contrib.staticfiles.storage."
+                "StaticFilesStorage"
+            ),
+        },
+    }
+
+    MEDIA_URL = (
+        f"https://{AWS_S3_CUSTOM_DOMAIN}/"
+        if AWS_S3_CUSTOM_DOMAIN
+        else (
+            "https://"
+            f"{AWS_STORAGE_BUCKET_NAME}.s3."
+            f"{AWS_S3_REGION_NAME}.amazonaws.com/"
+        )
+    )
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -226,7 +268,7 @@ LORESMITH_DAILY_TOKEN_BUDGET = int(
     os.getenv("LORESMITH_DAILY_TOKEN_BUDGET", "200000")
 )
 
-LORESMITH_AI_ENABLED = os.getenv("LORESMITH_AI_ENABLED", "true").lower() == "true"
+LORESMITH_AI_ENABLED = os.getenv("LORESMITH_AI_ENABLED", "false").lower() == "true"
 
 # Custom user model
 

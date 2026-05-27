@@ -29,6 +29,7 @@ EXPOSE 8000
 RUN adduser \
         --disabled-password \
         --no-create-home \
+        --gecos "" \
         django-user && \
     chmod -R +x /scripts && \
     chown -R django-user:django-user /app /py /scripts
