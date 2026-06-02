@@ -368,10 +368,18 @@ ALLOWED_HOSTS=127.0.0.1,localhost
 CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000,http://localhost:8000
 
 DB_HOST=db
-DB_NAME=loresmith
-DB_USER=loresmith
+DB_NAME=devdb
+DB_USER=devuser
 DB_PASS=changeme
-DB_PORT=5432
+
+CACHE_BACKEND=django_redis.cache.RedisCache
+CACHE_LOCATION=redis://redis:6379/1
+CACHE_KEY_PREFIX=loresmith_api
+
+USE_S3=False
+AWS_STORAGE_BUCKET_NAME=changeme
+AWS_S3_REGION_NAME=il-central-1
+AWS_S3_CUSTOM_DOMAIN=
 
 LORESMITH_AI_ENABLED=false
 OPENAI_API_KEY=
@@ -381,8 +389,9 @@ LORESMITH_MAX_INPUT_CHARS=8000
 LORESMITH_DAILY_TOKEN_BUDGET=50000
 ```
 
-For production-style media storage, the project also supports S3-related environment variables.
+For the full list of supported variables, see `.env.example`.
 
+Production security values such as `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, and `CSRF_COOKIE_SECURE` should be configured according to the deployment environment.
 ---
 
 ## Running Tests
