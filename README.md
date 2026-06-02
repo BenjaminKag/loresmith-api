@@ -391,7 +391,8 @@ LORESMITH_DAILY_TOKEN_BUDGET=50000
 
 For the full list of supported variables, see `.env.example`.
 
-Production security values such as `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, and `CSRF_COOKIE_SECURE` should be configured according to the deployment environment.
+Note: Production security values such as `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, and `CSRF_COOKIE_SECURE` should be configured according to the deployment environment.
+
 ---
 
 ## Running Tests
