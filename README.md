@@ -1,33 +1,36 @@
 # LoreSmith API
 
-[![Checks](https://github.com/BenjaminKag/loresmith-api/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/BenjaminKag/loresmith-api/actions/workflows/checks.yml)
+[![Checks](https://github.com/BenjaminKag/loresmith-api/actions/workflows/checks.yml/badge.svg?branch=mvp)](https://github.com/BenjaminKag/loresmith-api/actions/workflows/checks.yml)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#-license)
 
+LoreSmith is a **backend API for managing complex fictional worlds**.
 
-LoreSmith is a **worldbuilding backend API** for writers, game developers, and creative teams.
-It helps organize **stories, characters, factions, locations, and items**, while providing an **AI-powered story analysis assistant** that delivers structured feedback and insights.
+It is built for writers, game developers, and creative teams who need to organize stories, characters, factions, locations, items, tags, traits, images, and AI-assisted worldbuilding feedback in one structured system.
 
-This repository represents the **Proof of Concept (POC)** version of the LoreSmith backend, focused on **API design, data modeling, AI safety, and backend architecture**.
+The project focuses on backend architecture, data modeling, permissions, API design, testing, AI workflow safety, and deployment-ready infrastructure.
 
 ---
 
 ## 📸 Demo & Docs
 
-- **Swagger / OpenAPI UI:** 👉 http://127.0.0.1:8000/api/docs
-- **Auth:** Token-based (login via `/user/token/`)
+- **Swagger / OpenAPI UI:** `http://127.0.0.1:8000/api/docs/`
+- **Schema:** `http://127.0.0.1:8000/api/schema/`
+- **Auth:** Token-based authentication via `/api/user/token/`
 
-All endpoints are fully documented and testable via Swagger.
+All main endpoints are documented and testable through Swagger.
 
 ---
 
-## 🚀 Quickstart (Docker – Recommended)
+## 🚀 Quickstart with Docker
 
 ```bash
 git clone https://github.com/BenjaminKag/loresmith-api.git
 cd loresmith-api
 cp .env.example .env
+```
 
-docker compose up --build
+```bash
+docker compose up --build -d
 docker compose exec app python manage.py migrate
 docker compose exec app python manage.py createsuperuser  # optional
 ```
@@ -35,171 +38,272 @@ docker compose exec app python manage.py createsuperuser  # optional
 Open:
 👉 http://127.0.0.1:8000/api/docs
 
-ℹ️ Local (venv) setup is documented below for non-Docker users.
-
 ---
 
-## 🚀 Features
+## Main Features
 
-### **Worldbuilding Entities**
-The API supports full CRUD for:
+### Worldbuilding Entities
 
-- **Stories**
-- **Characters**
-- **Locations**
-- **Factions**
-- **Items**
+LoreSmith supports full CRUD APIs for:
 
-These entities can reference each other, forming a structured and interconnected world.
-
-### **Stories**
-- Hierarchical nesting (`parent` + `order`)
-- Rich text fields (title, summary, body)
-- Ownership control (`owner`)
-- Visibility system (`private`, `public`, `draft`, `archived`)
-- Automatic slug generation
-
-### **Relationships**
-Each story can reference:
-
+- Stories
 - Characters
 - Locations
 - Factions
 - Items
+- Tags
+- Trait sets and traits
+- Character profiles
+- Story AI analysis records
 
-And each entity can appear in many stories.
-
-### **Authentication & Users**
-- Custom user model (email-based login)
-- Endpoints for:
-  - User registration
-  - Token-based authentication
-  - Retrieving/updating the authenticated user's profile
+Entities can be connected to stories, allowing users to build structured fictional worlds with relationships between narrative elements.
 
 ---
 
-## 🏗 Architecture Overview
+## Stories
 
-LoreSmith is designed as a modular Django REST backend with explicit separation
-between domain logic, user/auth concerns, and external AI dependencies.
+Stories support:
 
-- Django REST Framework API exposing CRUD endpoints
-- Core domain logic isolated in `core` app
-- User/auth concerns isolated in `user` app
-- AI analysis behind a bounded client with safety controls
-- Throttling and permissions enforced at the API boundary
-
-This structure allows the API to evolve into async processing (e.g. background AI jobs) without changing external contracts.
+- Hierarchical structure using `parent`, `kind`, and `order`
+- Story types such as story, part, and standalone entries
+- Public/private visibility
+- Ownership-based permissions
+- Related characters, locations, factions, and items
+- Tags
+- Optional story image upload
+- Wiki/tree-style story structure endpoints
+- AI-powered story analysis
 
 ---
 
-## 🤖 AI Analysis (POC)
+## Permissions and Visibility
 
-The Story AI endpoint allows users to analyze story content using an OpenAI-powered assistant.
+The API includes ownership and visibility logic across the main entities.
 
-### **Endpoint**
-`POST /stories/{id}/analyze/`
+Supported behavior includes:
 
-### **Output includes:**
-- Short summary
+- Private-by-default user-owned content
+- Public story visibility
+- Nested story visibility rules
+- Anonymous access to public content
+- Owner-only editing
+- Validation to prevent users from linking their content to objects they do not own or cannot access
+
+This makes the backend closer to a real multi-user product instead of a simple CRUD demo.
+
+---
+
+## Tags
+
+LoreSmith includes user-scoped tags that can be attached to worldbuilding entities.
+
+Tag features include:
+
+- User-owned tags
+- Tag normalization
+- Tag creation and management
+- Tag filtering
+- Many-to-many tag support across stories and entities
+
+---
+
+## Trait Sets and Character Profiles
+
+LoreSmith supports structured character profiling through trait sets and traits.
+
+This allows characters to have profile data such as personality, mental traits, physical traits, priorities, and other structured worldbuilding attributes.
+
+Character profile functionality includes:
+
+- Trait sets
+- Traits
+- Allowed trait sets per story
+- Character profiles linked to characters
+- Manual profile structure support
+- AI-assisted character profile generation
+
+---
+
+## Image Support
+
+LoreSmith supports image uploads for worldbuilding entities.
+
+Supported image fields include:
+
+- Story image
+- Character image
+- Location image
+- Faction image
+- Item image
+
+The project supports local media storage for development and S3-backed media storage for production-style deployment.
+
+---
+
+## AI Features
+
+LoreSmith includes AI-assisted backend workflows designed with safety, cost control, and repeatability in mind.
+
+### Story Analysis
+
+The story analysis endpoint can analyze a story and return structured feedback such as:
+
+- Summary
 - Thematic analysis
-- Tone description
+- Tone
 - Strengths
 - Weaknesses
-- Suggestions for improvement
+- Suggestions
+- Consistency-oriented feedback
 - Token usage metadata
 
-### **Modes**
-| Mode | Condition | Description |
-|------|-----------|-------------|
-| **Mock mode** | AI disabled or no API key | Free, safe development mode with placeholder output |
-| **Live mode** | AI enabled + valid API key | Real GPT-4.1-mini analysis |
+### Character Profile Generation
 
-### **AI Safety**
-- Per-user throttling
-- Daily token budget enforcement
-- Max input character limit
-- Max output token limit
+LoreSmith includes an AI workflow for generating structured character profile suggestions from existing character/story information.
 
-AI functionality is intentionally constrained to demonstrate **safe LLM integration patterns** in a backend system.
+### AI Safety and Cost Controls
+
+The AI system includes:
+
+- Mock mode for safe local development
+- Live mode when AI is enabled and an API key is configured
+- AI request idempotency
+- Duplicate request protection
+- AI usage logging
+- Token/cost tracking structure
+- Premium gating for AI endpoints
+- Story analysis cleanup policy
+- Configurable limits for input size and output tokens
 
 ---
 
-## 🧭 API Tour (5-Minute Overview)
+## AI Modes
+
+### Mock Mode
+
+Mock mode is used when AI is disabled or no API key is configured.
+
+This allows development and testing without making real API calls.
+
+### Live Mode
+
+Live mode requires:
+
+```env
+LORESMITH_AI_ENABLED=true
+OPENAI_API_KEY=your_api_key
+```
+
+When enabled, LoreSmith can call the configured AI provider and return structured AI responses.
+
+---
+
+## API Tour
+
+### 1. Create a user
 
 ```bash
-# 1) Authenticate (get token)
+curl -X POST http://127.0.0.1:8000/api/user/create/ \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"password123","name":"Test User"}'
+```
+
+### 2. Get an auth token
+
+```bash
 curl -X POST http://127.0.0.1:8000/api/user/token/ \
   -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"password"}'
+  -d '{"email":"user@example.com","password":"password123"}'
+```
 
-# → Save the returned token for the next requests
+### 3. Create a story
 
-
-# 2) Create a story
+```bash
 curl -X POST http://127.0.0.1:8000/api/stories/ \
   -H "Authorization: Token <TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '{"title":"My World","summary":"A forgotten land on the edge of time","body":"Long ago..."}'
-
-
-# 3) List stories
-curl -H "Authorization: Token <TOKEN>" \
-  http://127.0.0.1:8000/api/stories/
-
-
-# 4) Analyze a story with AI (POC)
-curl -X POST http://127.0.0.1:8000/api/stories/1/analyze/ \
-  -H "Authorization: Token <TOKEN>"
-
-
-# 5) Retrieve the story again (story data is unchanged;
-# AI analysis is returned on-demand)
-curl -H "Authorization: Token <TOKEN>" \
-  http://127.0.0.1:8000/api/stories/1/
-
+  -d '{"title":"The Broken Kingdom","summary":"A kingdom divided by ancient magic.","body":"Long ago..."}'
 ```
 
-By default, the AI endpoint runs in mock mode unless OPENAI_API_KEY is set and LORESMITH_AI_ENABLED=true.
-Mock mode returns deterministic placeholder output for safe development.
+### 4. List stories
+
+```bash
+curl -H "Authorization: Token <TOKEN>" \
+  http://127.0.0.1:8000/api/stories/
+```
+
+### 5. Analyze a story
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/stories/1/analyze/ \
+  -H "Authorization: Token <TOKEN>"
+```
 
 ---
 
-## 📦 Project Structure
+## Project Structure
 
 ```text
 loresmith-api/
+├── .github/
+│   └── workflows/
+│       └── checks.yml
 │
 ├── app/
-│   ├── app/                # Django project settings and root URLs
-│   ├── core/               # Core domain logic (stories, world entities, AI, permissions)
-│   ├── tests/              # Core app tests
+│   ├── app/
+│   │   ├── settings.py
+│   │   ├── urls.py
+│   │   ├── asgi.py
+│   │   └── wsgi.py
+│   │
+│   ├── core/
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── permissions.py
+│   │   ├── mixins.py
+│   │   ├── admin.py
 │   │   ├── throttling.py
-│   │   ├── ai_client.py
-│   │   └── views/
-│   │       ├── story.py
-│   │       ├── character.py
-│   │       ├── location.py
-│   │       ├── faction.py
-│   │       └── item.py
+│   │   ├── urls.py
+│   │   ├── views/
+│   │   │   ├── story.py
+│   │   │   ├── character.py
+│   │   │   ├── location.py
+│   │   │   ├── faction.py
+│   │   │   ├── item.py
+│   │   │   ├── tag.py
+│   │   │   └── trait.py
+│   │   ├── services/
+│   │   │   ├── ai_client.py
+│   │   │   ├── ai_idempotency.py
+│   │   │   ├── ai_usage.py
+│   │   │   ├── character_profile_generator.py
+│   │   │   ├── story_analysis_cleanup.py
+│   │   │   └── story_analysis_generator.py
+│   │   └── tests/
 │   │
-│   └── user/               # User API (registration, auth, user profile)
-│       ├── tests/          # User app tests
-│       ├── serializers.py
-│       ├── views.py
-│       └── urls.py
+│   ├── user/
+│   │   ├── models.py
+│   │   ├── serializers.py
+│   │   ├── views.py
+│   │   ├── urls.py
+│   │   ├── admin.py
+│   │   └── tests/
+│   │
+│   └── manage.py
 │
-├── manage.py
+├── scripts/
+├── docker-compose.yml
+├── Dockerfile
 ├── requirements.txt
+├── requirements.dev.txt
+├── .env.example
+├── LICENSE
 └── README.md
 ```
 
 ---
 
-## 🔧 Installation (Local / Venv)
+## Local Installation without Docker
 
 ### 1️⃣ Clone the repository
 
@@ -208,7 +312,7 @@ git clone https://github.com/BenjaminKag/loresmith-api.git
 cd loresmith-api
 ```
 
-### 2️⃣ (Optional) Create a virtual environment
+### 2️⃣ Create a virtual environment
 
 ```bash
 python -m venv venv
@@ -222,138 +326,153 @@ venv\Scripts\activate        # Windows
 pip install -r requirements.txt
 ```
 
-### 4️⃣ Create your `.env` file
+### 4️⃣ Create your environment file
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in required fields:
+### 5️⃣ Move into the Django app directory
 
-```env
-DEBUG=True
-SECRET_KEY=changeme
-
-# --- AI / OpenAI ---
-OPENAI_API_KEY=changeme
-LORESMITH_AI_MODEL=gpt-4.1-mini
-LORESMITH_MAX_OUTPUT_TOKENS=256
-LORESMITH_MAX_INPUT_CHARS=8000
-LORESMITH_DAILY_TOKEN_BUDGET=50000
-LORESMITH_AI_ENABLED=true
+```bash
+cd app
 ```
 
-### 5️⃣ Apply migrations
+### 6️⃣ Apply migrations
 
 ```bash
 python manage.py migrate
 ```
 
-### 6️⃣ Run the server
+### 7️⃣ Run the development server
 
 ```bash
 python manage.py runserver
 ```
 
 View docs at:
-👉 **http://127.0.0.1:8000/api/docs**
+👉 **http://127.0.0.1:8000/api/docs/**
 
 ---
 
-## 🧪 Running Tests
+## Environment Variables
 
-Run the test suite:
+The project uses environment variables for configuration.
 
-```bash
-pytest
-```
-
-Test coverage includes:
-
-- Story, Character, Location, Faction and Item models + CRUD
-- Ownership + permissions
-- AI endpoint behavior (mocked AI)
-- Slug generation
-- Related entities CRUD
-- User API behavior (registration, auth, profile)
-
-Linting is enforced via `flake8` (CI-ready).
-
----
-
-## 📚 API Endpoints
-
-> **Note:** These paths assume your global API prefix is `/api/`
-> (e.g. `/api/stories/`, `/api/user/create/`).
-> Adjust if your URL configuration differs.
-
-### **Stories**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/stories/` | List stories |
-| POST | `/stories/` | Create story |
-| GET | `/stories/{id}/` | Retrieve story |
-| PATCH | `/stories/{id}/` | Update story |
-| DELETE | `/stories/{id}/` | Delete story |
-| POST | `/stories/{id}/analyze/` | **AI-powered story analysis** |
-
-Full endpoint list is available in Swagger.
-
----
-
-### **Users & Authentication**
-
-User-related endpoints (from the `user` app) are typically mounted under `/api/user/`.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/user/create/` | Register a new user |
-| POST | `/user/token/` | Obtain auth token (login) |
-| GET | `/user/me/` | Get the authenticated user's profile |
-| PATCH | `/user/me/` | Update the authenticated user's profile |
-
-Authentication is token-based (DRF Token/Auth or similar, depending on your settings).
-You can interact with these endpoints via Swagger or any HTTP client (curl, HTTPie, Postman, etc.).
-
----
-
-## 🧠 AI Configuration Details
-
-### **Mock Mode**
-Mock mode activates when:
-
-- `LORESMITH_AI_ENABLED = false`, **or**
-- `OPENAI_API_KEY` is missing/empty
-
-Mock mode returns a static AI response for safe development.
-
-### **Live Mode**
-Requires:
+Common variables include:
 
 ```env
-LORESMITH_AI_ENABLED=true
-OPENAI_API_KEY=your-key
+DEBUG=True
+SECRET_KEY=changeme
+ALLOWED_HOSTS=127.0.0.1,localhost
+CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000,http://localhost:8000
+
+DB_HOST=db
+DB_NAME=loresmith
+DB_USER=loresmith
+DB_PASS=changeme
+DB_PORT=5432
+
+LORESMITH_AI_ENABLED=false
+OPENAI_API_KEY=
+LORESMITH_AI_MODEL=gpt-4.1-mini
+LORESMITH_MAX_OUTPUT_TOKENS=256
+LORESMITH_MAX_INPUT_CHARS=8000
+LORESMITH_DAILY_TOKEN_BUDGET=50000
 ```
 
-The system will:
+For production-style media storage, the project also supports S3-related environment variables.
 
-- Call OpenAI's Chat Completion API
-- Parse structured JSON output
-- Report token usage
-- Enforce safety and rate limits
+---
+
+## Running Tests
+
+Run the test suite with Docker:
+
+```bash
+docker compose run --rm app sh -c "python manage.py wait_for_db && python manage.py test"
+```
+
+Or locally from the `app/` directory:
+
+```bash
+python manage.py test
+```
+
+The test suite covers:
+
+- User registration and authentication
+- Story model and API behavior
+- Character, location, faction, and item APIs
+- Ownership and permissions
+- Public/private visibility rules
+- Nested story behavior
+- Tags and tag filtering
+- Trait sets and traits
+- Character profile generation
+- Story AI analysis
+- AI idempotency
+- AI usage logging
+- Story analysis cleanup
+- Serializer validation
+- Management commands
+
+---
+
+## Linting
+
+Run flake8 with Docker:
+
+```bash
+docker compose run --rm app sh -c "flake8"
+```
+
+---
+
+## Deployment Notes
+
+LoreSmith is built with deployment readiness in mind.
+
+The project includes support for:
+
+- Dockerized application setup
+- PostgreSQL database configuration
+- Gunicorn production server
+- Static file collection
+- S3-backed media storage
+- Environment-based production settings
+- AWS-style deployment configuration
+
+---
+
+## Main Technologies
+
+- Python
+- Django
+- Django REST Framework
+- PostgreSQL
+- Docker
+- Gunicorn
+- drf-spectacular / Swagger
+- Pillow
+- django-storages
+- AWS S3-compatible media storage
+- Token authentication
+- OpenAI-compatible AI integration
 
 ---
 
 ## 📝 License
+
 © 2025 Benjamin Kagansky
 All Rights Reserved.
 
-This codebase is proprietary. Unauthorized copying, modification,
-distribution, or use is strictly prohibited without explicit permission.
+This codebase is proprietary. Unauthorized copying, modification, distribution, or use is strictly prohibited without explicit permission.
 
 ---
 
-## 🙌 Credits
+## Credits
 
-Developed by **Benjamin Kagansky**
-Backend architecture and AI integration developed with AI-assisted tools.
+Developed by **Benjamin Kagansky**.
+
+Backend architecture, API design, AI workflows, permissions, tests, and deployment preparation were developed as part of the LoreSmith MVP.
