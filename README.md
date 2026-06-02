@@ -3,9 +3,9 @@
 [![Checks](https://github.com/BenjaminKag/loresmith-api/actions/workflows/checks.yml/badge.svg?branch=mvp)](https://github.com/BenjaminKag/loresmith-api/actions/workflows/checks.yml)
 [![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red)](#-license)
 
-LoreSmith is a **backend API for managing complex fictional worlds**.
+LoreSmith is a **worldbuilding backend API** for writers, game developers, and creative teams.
 
-It is built for writers, game developers, and creative teams who need to organize stories, characters, factions, locations, items, tags, traits, images, and AI-assisted worldbuilding feedback in one structured system.
+It helps creators manage complex fictional worlds through structured support for **stories, characters, factions, locations, items, tags, traits, images, and character profiles**, alongside AI-assisted story analysis and character profile generation.
 
 The project focuses on backend architecture, data modeling, permissions, API design, testing, AI workflow safety, and deployment-ready infrastructure.
 
