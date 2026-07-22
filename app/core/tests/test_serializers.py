@@ -644,8 +644,8 @@ class CharacterSerializerTests(TestCase):
             {"age": 2000, "element": "anemo"},
         )
 
-    def test_profile_trait_sets_allowed_when_character_has_no_stories(self):
-        """Character without stories can use any owned trait set."""
+    def test_profile_trait_sets_rejected_when_character_has_no_stories(self):
+        """Trait sets can't be customized before a character has a story."""
         user = create_user()
 
         trait_set = models.TraitSet.objects.create(
@@ -663,7 +663,41 @@ class CharacterSerializerTests(TestCase):
             context={"request": DummyRequest(user)},
         )
 
-        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("profile_trait_sets", serializer.errors)
+
+    def test_profile_trait_sets_rejected_for_other_users_trait_set(self):
+        """A character can't use a trait set owned by another user."""
+        user = create_user()
+        other_user = create_user(email="other@example.com")
+
+        other_trait_set = models.TraitSet.objects.create(
+            name="Magic",
+            owner=other_user,
+        )
+
+        character = models.Character.objects.create(name="Xiao", owner=user)
+
+        story = models.Story.objects.create(
+            title="Main Story",
+            kind=models.Story.Kind.STORY,
+            owner=user,
+        )
+        story.characters.add(character)
+
+        payload = {
+            "profile_trait_sets": [other_trait_set.id],
+        }
+
+        serializer = serializers.CharacterSerializer(
+            character,
+            data=payload,
+            partial=True,
+            context={"request": DummyRequest(user)},
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("profile_trait_sets", serializer.errors)
 
     def test_profile_trait_sets_must_be_allowed_by_existing_story(self):
         """Character trait sets must be allowed by attached stories."""

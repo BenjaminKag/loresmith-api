@@ -13,6 +13,7 @@ from .serializers import (
     UserSerializer,
     AuthTokenSerializer,
 )
+from core.throttling import AuthRateThrottle
 from drf_spectacular.utils import extend_schema
 
 
@@ -20,6 +21,7 @@ from drf_spectacular.utils import extend_schema
 class CreateUserView(generics.CreateAPIView):
     """Create a new user in the system."""
     serializer_class = UserSerializer
+    throttle_classes = [AuthRateThrottle]
 
 
 @extend_schema(tags=["Authentication"])
@@ -27,6 +29,7 @@ class CreateTokenView(ObtainAuthToken):
     """Create a new auth token for user."""
     serializer_class = AuthTokenSerializer
     renderer_classes = api_settings.DEFAULT_RENDERER_CLASSES
+    throttle_classes = [AuthRateThrottle]
 
 
 @extend_schema(tags=["Users"])

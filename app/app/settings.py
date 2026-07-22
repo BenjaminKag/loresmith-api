@@ -256,6 +256,7 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "ai": "20/day",  # 20 AI calls per user per day
+        "auth": "5/min",  # 5 login/registration attempts per IP per minute
     },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Uncomment when you start using filters:

@@ -228,6 +228,21 @@ class LocationSerializer(TagNamesMixin, serializers.ModelSerializer):
 
         return instance
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if user and user.is_authenticated:
+            parent = attrs.get("parent")
+
+            if parent and parent.owner != user:
+                raise serializers.ValidationError({
+                    "parent":
+                    "You can only assign your own locations as a parent."
+                })
+
+        return attrs
+
 
 class FactionSerializer(TagNamesMixin, serializers.ModelSerializer):
     """Serializer for Faction model."""
@@ -265,6 +280,21 @@ class FactionSerializer(TagNamesMixin, serializers.ModelSerializer):
             self._replace_tags(instance, tags)
 
         return instance
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if user and user.is_authenticated:
+            location = attrs.get("location")
+
+            if location and location.owner != user:
+                raise serializers.ValidationError({
+                    "location":
+                    "You can only assign your own locations."
+                })
+
+        return attrs
 
 
 class ItemSerializer(TagNamesMixin, serializers.ModelSerializer):
@@ -445,54 +475,57 @@ class CharacterSerializer(TagNamesMixin, serializers.ModelSerializer):
                     )
                 })
 
-        # Validate profile_trait_sets against story.allowed_trait_sets
-        if user and user.is_authenticated:
-            # Determine incoming or existing trait sets
-            if self.instance:
-                profile_trait_sets = attrs.get(
-                    "profile_trait_sets",
-                    self.instance.profile_trait_sets.all()
-                )
-            else:
-                profile_trait_sets = attrs.get("profile_trait_sets")
+        # Validate profile_trait_sets: must be the user's own trait sets,
+        # and can only be set once the character is attached to a story
+        # that allows them (per-story trait customization).
+        profile_trait_sets = attrs.get("profile_trait_sets")
 
-            # If no trait sets provided -> nothing to validate
-            if profile_trait_sets:
-                # Determine stories (incoming or existing)
-                if self.instance:
-                    stories = attrs.get("stories", self.instance.stories.all())
-                else:
-                    stories = attrs.get("stories")
+        if profile_trait_sets and user and user.is_authenticated:
+            for trait_set in profile_trait_sets:
+                if trait_set.owner != user:
+                    raise serializers.ValidationError({
+                        "profile_trait_sets":
+                        "You can only use your own trait sets."
+                    })
 
-                if stories:
-                    allowed_sets = set()
+            stories = self.instance.stories.all() if self.instance else None
 
-                    for story in stories:
-                        # Resolve root story (handle PART)
-                        root = story
-                        while root.parent:
-                            root = root.parent
+            if not stories:
+                raise serializers.ValidationError({
+                    "profile_trait_sets": (
+                        "Attach this character to a story before "
+                        "customizing its trait sets."
+                    )
+                })
 
-                        # Add allowed sets from root story
-                        allowed_sets.update(root.allowed_trait_sets.all())
+            allowed_sets = set()
 
-                    profile_set_ids = {ts.id for ts in profile_trait_sets}
-                    allowed_set_ids = {ts.id for ts in allowed_sets}
+            for story in stories:
+                # Resolve root story (handle PART)
+                root = story
+                while root.parent:
+                    root = root.parent
 
-                    invalid_sets = profile_set_ids - allowed_set_ids
+                # Add allowed sets from root story
+                allowed_sets.update(root.allowed_trait_sets.all())
 
-                    if invalid_sets:
-                        invalid_set_names = [
-                            ts.name for ts in profile_trait_sets
-                            if ts.id in invalid_sets
-                        ]
+            profile_set_ids = {ts.id for ts in profile_trait_sets}
+            allowed_set_ids = {ts.id for ts in allowed_sets}
 
-                        raise serializers.ValidationError({
-                            "profile_trait_sets": (
-                                "Trait sets not allowed by stories: "
-                                f"{invalid_set_names}"
-                            )
-                        })
+            invalid_sets = profile_set_ids - allowed_set_ids
+
+            if invalid_sets:
+                invalid_set_names = [
+                    ts.name for ts in profile_trait_sets
+                    if ts.id in invalid_sets
+                ]
+
+                raise serializers.ValidationError({
+                    "profile_trait_sets": (
+                        "Trait sets not allowed by stories: "
+                        f"{invalid_set_names}"
+                    )
+                })
 
         # If the user is authenticated, validate that any
         # assigned relationships belong to the user.
@@ -694,6 +727,13 @@ class StorySerializer(TagNamesMixin, serializers.ModelSerializer):
             locations = attrs.get("locations", [])
             factions = attrs.get("factions", [])
             items = attrs.get("items", [])
+            allowed_trait_sets = attrs.get("allowed_trait_sets", [])
+
+            if parent and parent.owner != user:
+                raise serializers.ValidationError({
+                    "parent":
+                    "You can only assign your own stories as a parent."
+                })
 
             for character in characters:
                 if character.owner != user:
@@ -721,6 +761,13 @@ class StorySerializer(TagNamesMixin, serializers.ModelSerializer):
                     raise serializers.ValidationError({
                         "items":
                         "You can only assign your own items."
+                    })
+
+            for trait_set in allowed_trait_sets:
+                if trait_set.owner != user:
+                    raise serializers.ValidationError({
+                        "allowed_trait_sets":
+                        "You can only assign your own trait sets."
                     })
 
         return attrs

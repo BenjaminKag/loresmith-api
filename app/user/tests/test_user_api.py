@@ -3,6 +3,7 @@ Tests for the user API.
 """
 from django.test import TestCase
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.urls import reverse
 
 from rest_framework.test import APIClient
@@ -25,6 +26,7 @@ class PublicUserApiTests(TestCase):
     """Tests for the public features of the user API."""
 
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
 
     def test_create_user_success(self):

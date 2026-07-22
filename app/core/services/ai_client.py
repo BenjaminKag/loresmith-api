@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict
+import json
 import logging
 
 from django.conf import settings
@@ -194,7 +195,15 @@ class LoreAIService:
                 self.config.daily_token_budget,
             )
 
-        parsed = response.choices[0].message.parsed
+        content = response.choices[0].message.content
+
+        try:
+            parsed = json.loads(content)
+        except (TypeError, json.JSONDecodeError) as exc:
+            logger.exception("OpenAI returned invalid JSON content")
+            raise AiServiceError(
+                "AI generation returned an unexpected response."
+            ) from exc
 
         return {
             "data": parsed,

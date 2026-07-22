@@ -1,4 +1,4 @@
-from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle
 
 
 class AIUserThrottle(SimpleRateThrottle):
@@ -14,3 +14,12 @@ class AIUserThrottle(SimpleRateThrottle):
             return None
         ident = user.pk
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class AuthRateThrottle(AnonRateThrottle):
+    """
+    Limit attempts against auth endpoints (login, registration) by IP,
+    to slow down brute-force and mass account creation attempts.
+    """
+
+    scope = "auth"
