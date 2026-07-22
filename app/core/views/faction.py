@@ -3,7 +3,7 @@ ViewSet for Faction objects.
 """
 from rest_framework import viewsets, permissions
 
-from django.db.models import Q
+# from django.db.models import Q
 
 from core import models, serializers
 from core.mixins import TagFilterMixin
@@ -47,6 +47,9 @@ class FactionViewSet(TagFilterMixin, viewsets.ModelViewSet):
 
         user = self.request.user
 
+        """
+        # Authenticated users can see their own factions and
+        # any factions that are public.
         if user.is_authenticated:
             queryset = base_queryset.filter(
                 Q(owner=user) |
@@ -57,5 +60,15 @@ class FactionViewSet(TagFilterMixin, viewsets.ModelViewSet):
             queryset = base_queryset.filter(
                 stories__visibility=models.Story.Visibility.PUBLIC
             ).distinct()
+        """
+
+        # Only show factions owned by the user,
+        # since the profile generation relies on that.
+
+        if user.is_authenticated:
+            queryset = base_queryset.filter(owner=user)
+
+        else:
+            queryset = base_queryset.none()
 
         return self.apply_tag_filters(queryset)

@@ -23,6 +23,7 @@ def cleanup_old_story_analyses(
     if keep_latest < 1:
         raise ValueError("keep_latest must be at least 1.")
 
+    # keep only the most recent analyses
     analysis_ids_to_keep = list(
         models.StoryAnalysis.objects
         .filter(story=story)
@@ -30,6 +31,7 @@ def cleanup_old_story_analyses(
         .values_list("id", flat=True)[:keep_latest]
     )
 
+    # remove older analyses
     delete_queryset = (
         models.StoryAnalysis.objects
         .filter(story=story)

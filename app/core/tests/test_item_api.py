@@ -195,15 +195,17 @@ class ItemApiTests(APITestCase):
         exists = models.Item.objects.filter(id=item.id).exists()
         self.assertTrue(exists)
 
-    def test_user_can_view_others_item_in_public_story(self):
-        """Authenticated users can retrieve items
-          that appear in public stories."""
+    def test_user_cannot_view_others_item_in_public_story(self):
+        """Authenticated users cannot retrieve others' items
+        through the regular item endpoint,
+        even if they appear in public stories."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
         )
         item = models.Item.objects.create(
-            name="Public Sword",
+            name="Skyward Blade",
+            description="A legendary weapon.",
             owner=other_user,
         )
         story = models.Story.objects.create(
@@ -216,18 +218,18 @@ class ItemApiTests(APITestCase):
         url = detail_url(item.id)
         res = self.client.get(url)
 
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data["name"], "Public Sword")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_anonymous_user_can_view_item_in_public_story(self):
-        """Anonymous users can retrieve items
-          that appear in public stories."""
+    def test_anonymous_user_cannot_view_item_in_public_story(self):
+        """Anonymous users cannot retrieve items
+        through the regular item endpoint,
+        even if they appear in public stories."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
         )
         item = models.Item.objects.create(
-            name="Visible Artifact",
+            name="Jade Spear",
             owner=other_user,
         )
         story = models.Story.objects.create(
@@ -241,7 +243,7 @@ class ItemApiTests(APITestCase):
         url = detail_url(item.id)
         res = self.client.get(url)
 
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_anonymous_user_cannot_view_item_only_in_private_stories(self):
         """Anonymous users cannot retrieve items
@@ -281,9 +283,10 @@ class ItemApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data["name"], "Private Artifact")
 
-    def test_list_includes_own_and_public_story_items_only(self):
-        """Authenticated users see their own items
-          and items from public stories."""
+    def test_list_includes_own_items_only(self):
+        """
+        Authenticated users only see their own items.
+        """
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
@@ -321,7 +324,7 @@ class ItemApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertCountEqual(
             [i["name"] for i in res.data],
-            ["My Item", "Public Item"],
+            ["My Item"],
         )
 
     def test_upload_image_to_item(self):

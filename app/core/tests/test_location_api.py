@@ -186,15 +186,17 @@ class LocationApiTests(APITestCase):
         exists = models.Location.objects.filter(id=location.id).exists()
         self.assertTrue(exists)
 
-    def test_user_can_view_others_location_in_public_story(self):
-        """Authenticated users can retrieve locations
-          that appear in public stories."""
+    def test_user_cannot_view_others_location_in_public_story(self):
+        """Authenticated users cannot retrieve others' locations
+        through the regular location endpoint,
+        even if they appear in public stories."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
         )
         location = models.Location.objects.create(
             name="Liyue Harbor",
+            description="A bustling harbor city.",
             owner=other_user,
         )
         story = models.Story.objects.create(
@@ -207,12 +209,12 @@ class LocationApiTests(APITestCase):
         url = detail_url(location.id)
         res = self.client.get(url)
 
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data["name"], "Liyue Harbor")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_anonymous_user_can_view_location_in_public_story(self):
-        """Anonymous users can retrieve locations
-          that appear in public stories."""
+    def test_anonymous_user_cannot_view_location_in_public_story(self):
+        """Anonymous users cannot retrieve locations
+        through the regular location endpoint,
+        even if they appear in public stories."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
@@ -232,7 +234,7 @@ class LocationApiTests(APITestCase):
         url = detail_url(location.id)
         res = self.client.get(url)
 
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_anonymous_user_cannot_view_location_only_in_private_stories(self):
         """Anonymous users cannot retrieve locations that

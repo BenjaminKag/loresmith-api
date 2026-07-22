@@ -263,9 +263,10 @@ class CharacterApiTests(APITestCase):
         exists = models.Character.objects.filter(id=character.id).exists()
         self.assertTrue(exists)
 
-    def test_user_can_view_others_character_in_public_story(self):
-        """Authenticated users can retrieve characters
-            that appear in public stories."""
+    def test_user_cannot_view_others_character_in_public_story(self):
+        """Authenticated users cannot retrieve others' characters
+            through the regular character endpoint,
+            even if they appear in public stories."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
@@ -285,12 +286,12 @@ class CharacterApiTests(APITestCase):
         url = detail_url(character.id)
         res = self.client.get(url)
 
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data["name"], "Xiao")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_anonymous_user_can_view_character_in_public_story(self):
-        """Anonymous users can retrieve characters
-          that appear in public stories."""
+    def test_anonymous_user_cannot_view_character_in_public_story(self):
+        """Anonymous users cannot retrieve characters
+        through the regular character endpoint,
+        even if they appear in public stories."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
@@ -310,8 +311,7 @@ class CharacterApiTests(APITestCase):
         url = detail_url(character.id)
         res = self.client.get(url)
 
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data["name"], "Venti")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_anonymous_user_cant_view_character_only_in_private_stories(self):
         """Anonymous users cannot retrieve characters that
@@ -351,15 +351,14 @@ class CharacterApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data["name"], "Private Character")
 
-    def test_list_includes_own_and_public_story_characters_only(self):
-        """Authenticated users see their own characters
-          and characters from public stories."""
+    def test_list_includes_own_characters_only(self):
+        """Authenticated users see only their own characters."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
         )
 
-        _ = models.Character.objects.create(
+        models.Character.objects.create(
             name="My Character",
             owner=self.user,
         )
@@ -391,7 +390,7 @@ class CharacterApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertCountEqual(
             [c["name"] for c in res.data],
-            ["My Character", "Public Character"],
+            ["My Character"],
         )
 
     def test_upload_image_to_character(self):
@@ -617,8 +616,11 @@ class CharacterApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data, [])
 
-    def test_filter_characters_respects_visibility_and_ownership(self):
-        """Filtering should still respect ownership and public story rules."""
+    def test_filter_characters_respects_ownership(self):
+        """
+        Filtering should only search within
+        the authenticated user's characters.
+        """
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
@@ -663,11 +665,12 @@ class CharacterApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertCountEqual(
             [c["name"] for c in res.data],
-            ["My Character", "Public Character"],
+            ["My Character"],
         )
 
-    def test_anonymous_filter_characters_by_tag_only_returns_public(self):
-        """Anonymous filtering only returns characters in public stories."""
+    def test_anonymous_filter_characters_by_tag_returns_empty_list(self):
+        """Anonymous filtering returns no characters
+        from the regular character endpoint."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
@@ -706,8 +709,7 @@ class CharacterApiTests(APITestCase):
         res = self.client.get(CHARACTERS_URL, {"tags": "Anemo"})
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(res.data), 1)
-        self.assertEqual(res.data[0]["name"], "Public Character")
+        self.assertEqual(res.data, [])
 
     def test_create_character_with_profile(self):
         """Creating a character with profile should persist profile data."""

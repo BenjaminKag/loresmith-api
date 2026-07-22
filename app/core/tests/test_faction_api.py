@@ -207,15 +207,17 @@ class FactionApiTests(APITestCase):
         exists = models.Faction.objects.filter(id=faction.id).exists()
         self.assertTrue(exists)
 
-    def test_user_can_view_others_faction_in_public_story(self):
-        """Authenticated users can retrieve factions
-          that appear in public stories."""
+    def test_user_cannot_view_others_faction_in_public_story(self):
+        """Authenticated users cannot retrieve others' factions
+        through the regular faction endpoint,
+        even if they appear in public stories."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
         )
         faction = models.Faction.objects.create(
-            name="Adepti",
+            name="Fatui",
+            description="A powerful organization.",
             owner=other_user,
         )
         story = models.Story.objects.create(
@@ -228,18 +230,18 @@ class FactionApiTests(APITestCase):
         url = detail_url(faction.id)
         res = self.client.get(url)
 
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data["name"], "Adepti")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_anonymous_user_can_view_faction_in_public_story(self):
-        """Anonymous users can retrieve factions
-          that appear in public stories."""
+    def test_anonymous_user_cannot_view_faction_in_public_story(self):
+        """Anonymous users cannot retrieve factions
+        through the regular faction endpoint,
+        even if they appear in public stories."""
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
         )
         faction = models.Faction.objects.create(
-            name="Fatui",
+            name="Knights of Favonius",
             owner=other_user,
         )
         story = models.Story.objects.create(
@@ -253,8 +255,7 @@ class FactionApiTests(APITestCase):
         url = detail_url(faction.id)
         res = self.client.get(url)
 
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res.data["name"], "Fatui")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_anonymous_user_cannot_view_faction_only_in_private_stories(self):
         """Anonymous users cannot retrieve factions
@@ -294,9 +295,10 @@ class FactionApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data["name"], "Private Faction")
 
-    def test_list_includes_own_and_public_story_factions_only(self):
-        """Authenticated users see their own factions
-          and factions from public stories."""
+    def test_list_includes_own_factions_only(self):
+        """
+        Authenticated users only see their own factions.
+        """
         other_user = create_user(
             email="other@example.com",
             password="testpass123",
@@ -334,7 +336,7 @@ class FactionApiTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertCountEqual(
             [f["name"] for f in res.data],
-            ["My Faction", "Public Faction"],
+            ["My Faction"],
         )
 
     def test_upload_image_to_faction(self):

@@ -9,7 +9,7 @@ from rest_framework import (
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from django.db.models import Q
+# from django.db.models import Q
 from django.shortcuts import get_object_or_404
 
 from core import models, serializers
@@ -59,6 +59,10 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
 
         user = self.request.user
 
+        """
+        # Owners can see all their characters.
+        # Everyone can see characters in public stories.
+
         if user.is_authenticated:
             queryset = base_queryset.filter(
                 Q(owner=user) |
@@ -69,6 +73,16 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
             queryset = base_queryset.filter(
                 stories__visibility=models.Story.Visibility.PUBLIC
             ).distinct()
+        """
+
+        # Only show characters owned by the user,
+        # since the profile generation relies on that.
+
+        if user.is_authenticated:
+            queryset = base_queryset.filter(owner=user)
+
+        else:
+            queryset = base_queryset.none()
 
         return self.apply_tag_filters(queryset)
 
