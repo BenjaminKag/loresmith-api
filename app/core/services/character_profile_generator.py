@@ -14,10 +14,11 @@ from core.models import slugify_underscore
 class CharacterProfileGenerator:
     """Generate suggested profile data for an existing character."""
 
-    def generate(self, character, include_story_context=False):
+    def generate(self, character, user=None, include_story_context=False):
         """
         Generate a suggested character profile.
             - character: Character instance to analyze
+            - user: user the AI request/budget should be attributed to
             - include_story_context:
                 Whether to include story context in the analysis
         """
@@ -35,7 +36,7 @@ class CharacterProfileGenerator:
                 "No trait sets provided for profile generation."
             )
 
-        ai_service = LoreAIService()
+        ai_service = LoreAIService(user=user)
         character_data = self._truncate_character_data(
             character_data,
             ai_service.config.max_input_chars,

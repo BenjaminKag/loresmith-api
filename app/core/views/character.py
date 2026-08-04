@@ -19,7 +19,7 @@ from core.services import ai_idempotency, ai_usage
 from core.services.character_profile_generator import (
     CharacterProfileGenerator,
 )
-from core.services.ai_client import AiServiceError
+from core.services.ai_client import AiServiceError, DailyBudgetExceeded
 
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
@@ -233,6 +233,7 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
         try:
             result = generator.generate(
                 character,
+                user=request.user,
                 include_story_context=include_story_context,
             )
 
@@ -246,6 +247,13 @@ class CharacterViewSet(TagFilterMixin, viewsets.ModelViewSet):
                 endpoint_type=models.AIEndpointType.CHARACTER_PROFILE,
                 meta=result.get("meta", {}),
                 request_log=request_log,
+            )
+
+        except DailyBudgetExceeded as exc:
+            ai_idempotency.mark_request_failed(request_log, str(exc))
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
         except AiServiceError as exc:

@@ -152,7 +152,7 @@ class StoryViewSet(TagFilterMixin, viewsets.ModelViewSet):
             return Response(response_data, status=status.HTTP_200_OK)
 
         try:
-            analysis = generator.generate(story)
+            analysis = generator.generate(story, user=request.user)
             response_data = self._build_story_analysis_response_data(
                 story,
                 analysis,

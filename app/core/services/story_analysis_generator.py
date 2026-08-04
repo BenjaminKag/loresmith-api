@@ -16,7 +16,7 @@ from core import models
 class StoryAnalysisGenerator:
     """Generate structured analysis for an existing story."""
 
-    def generate(self, story) -> Dict[str, Any]:
+    def generate(self, story, user=None) -> Dict[str, Any]:
         """Generate AI analysis for a story."""
         text = self._build_story_text(story)
         input_hash = self._build_input_hash(text)
@@ -25,7 +25,7 @@ class StoryAnalysisGenerator:
         if cached_analysis:
             return self._build_cached_response(cached_analysis)
 
-        ai_service = LoreAIService()
+        ai_service = LoreAIService(user=user)
 
         if ai_service.should_use_mock():
             result = self._mock_response(text)

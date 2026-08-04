@@ -10,7 +10,7 @@ from rest_framework import status
 
 from core import models
 from core.services.ai_client import DailyBudgetExceeded, AiServiceError
-from core.services import ai_idempotency
+from core.services import ai_client, ai_idempotency
 
 import uuid
 
@@ -169,6 +169,25 @@ class StoryAIApiTests(APITestCase):
 
         assert res.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert "budget" in res.data["detail"].lower()
+
+    @override_settings(
+        LORESMITH_AI_ENABLED=True,
+        OPENAI_API_KEY="test-key",
+        LORESMITH_USER_DAILY_TOKEN_BUDGET=10,
+    )
+    def test_analyze_returns_429_when_user_budget_exceeded(self):
+        """
+        A single user's own token cap can trip 429 on the real
+        generator/ai_client path, without the global budget being touched.
+        """
+        ai_client.add_user_daily_tokens_used(self.user.id, 10)
+
+        story = create_story(owner=self.user)
+
+        res = self.client.post(analyze_url(story.id))
+
+        assert res.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert "your" in res.data["detail"].lower()
 
     @mock.patch("core.views.story.StoryAnalysisGenerator")
     def test_analyze_returns_503_when_ai_service_fails(

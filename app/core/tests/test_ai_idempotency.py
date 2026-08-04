@@ -2,6 +2,7 @@
 Tests for AI idempotency helpers.
 """
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 
@@ -13,6 +14,7 @@ class AIIdempotencyTests(TestCase):
     """Tests for AI idempotency helper functions."""
 
     def setUp(self):
+        cache.clear()
         self.user = get_user_model().objects.create_user(
             email="test@example.com",
             password="testpass123",
@@ -241,3 +243,97 @@ class AIIdempotencyTests(TestCase):
         )
 
         self.assertIsNone(recent_log)
+
+    def test_cached_in_progress_check_avoids_db_query(self):
+        """A cached in-progress dedupe entry raises without hitting the DB."""
+        ai_idempotency.create_in_progress_request(
+            user=self.user,
+            endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+            request_payload=self.payload,
+        )
+
+        with self.assertNumQueries(0):
+            with self.assertRaises(ai_idempotency.AIRequestInProgress):
+                ai_idempotency.create_in_progress_request(
+                    user=self.user,
+                    endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+                    request_payload=self.payload,
+                )
+
+    def test_cached_completed_check_avoids_db_query(self):
+        """A cached completed dedupe entry resolves without hitting the DB."""
+        request_log, _ = ai_idempotency.create_in_progress_request(
+            user=self.user,
+            endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+            request_payload=self.payload,
+        )
+
+        response_payload = {"summary": "Cached result"}
+        ai_idempotency.mark_request_completed(request_log, response_payload)
+
+        with self.assertNumQueries(0):
+            duplicate_log, created = (
+                ai_idempotency.create_in_progress_request(
+                    user=self.user,
+                    endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+                    request_payload=self.payload,
+                )
+            )
+
+        self.assertFalse(created)
+        self.assertEqual(duplicate_log.response_payload, response_payload)
+
+    def test_cold_cache_falls_back_to_db_and_repopulates(self):
+        """A cache miss falls back to the DB and repopulates the cache."""
+        content_hash = ai_idempotency.build_content_hash(self.payload)
+        idempotency_key = ai_idempotency.build_idempotency_key(
+            user_id=self.user.id,
+            endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+            content_hash=content_hash,
+        )
+        request_log = models.AIRequestLog.objects.create(
+            owner=self.user,
+            endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+            idempotency_key=idempotency_key,
+            content_hash=content_hash,
+            status=models.AIRequestStatus.COMPLETED,
+            response_payload={"summary": "Pre-existing result"},
+            completed_at=timezone.now(),
+        )
+
+        duplicate_log, created = ai_idempotency.create_in_progress_request(
+            user=self.user,
+            endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+            request_payload=self.payload,
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(duplicate_log.id, request_log.id)
+
+        with self.assertNumQueries(0):
+            second_log, second_created = (
+                ai_idempotency.create_in_progress_request(
+                    user=self.user,
+                    endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+                    request_payload=self.payload,
+                )
+            )
+
+        self.assertFalse(second_created)
+        self.assertEqual(second_log.id, request_log.id)
+
+    def test_mark_request_failed_updates_cache(self):
+        """Marking a request failed updates the dedupe cache entry too."""
+        request_log, _ = ai_idempotency.create_in_progress_request(
+            user=self.user,
+            endpoint_type=models.AIEndpointType.STORY_ANALYSIS,
+            request_payload=self.payload,
+        )
+
+        ai_idempotency.mark_request_failed(request_log, "boom")
+
+        cached = cache.get(
+            ai_idempotency._dedupe_cache_key(request_log.idempotency_key)
+        )
+        self.assertIsNotNone(cached)
+        self.assertEqual(cached["status"], models.AIRequestStatus.FAILED)

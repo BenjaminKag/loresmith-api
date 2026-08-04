@@ -4,6 +4,7 @@ Tests for AI character profile generation.
 
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import override_settings, TestCase
 
 from rest_framework.test import APITestCase
@@ -12,7 +13,7 @@ from rest_framework import status
 from core import models
 from core.services.ai_client import AiServiceError
 from core.services.character_profile_generator import CharacterProfileGenerator
-from core.services import ai_idempotency
+from core.services import ai_client, ai_idempotency
 
 from unittest import mock
 import uuid
@@ -112,6 +113,28 @@ class CharacterProfileGenerationApiTests(APITestCase):
         res = self.client.post(url, {}, format="json")
 
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(
+        LORESMITH_AI_ENABLED=True,
+        OPENAI_API_KEY="test-key",
+        LORESMITH_USER_DAILY_TOKEN_BUDGET=10,
+    )
+    def test_generate_profile_blocked_when_user_budget_exceeded(self):
+        """
+        A user's own exhausted token budget blocks profile generation on
+        the real generator/ai_client path, returning 429 like the story
+        analyze endpoint does for the same condition.
+        """
+        cache.clear()
+        ai_client.add_user_daily_tokens_used(self.user.id, 10)
+
+        character = self._create_character_with_trait_set()
+
+        url = generate_profile_url(character.id)
+        res = self.client.post(url, {}, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertIn("your", res.data["detail"].lower())
 
     def test_generated_profile_only_uses_selected_trait_sets(self):
         """

@@ -27,6 +27,7 @@ class LoreAIConfig:
     max_output_tokens: int
     max_input_chars: int
     daily_token_budget: int
+    user_daily_token_budget: int
 
 
 class AiServiceError(RuntimeError):
@@ -54,7 +55,12 @@ def _get_config() -> LoreAIConfig:
         daily_token_budget=getattr(
             settings,
             "LORESMITH_DAILY_TOKEN_BUDGET",
-            200000,
+            250000,
+        ),
+        user_daily_token_budget=getattr(
+            settings,
+            "LORESMITH_USER_DAILY_TOKEN_BUDGET",
+            40000,
         ),
     )
 
@@ -69,6 +75,21 @@ def get_daily_tokens_used() -> int:
 
 def add_daily_tokens_used(tokens: int) -> None:
     key = _daily_token_key()
+    current = int(cache.get(key, 0))
+    # expire after 24 hours
+    cache.set(key, current + tokens, timeout=60 * 60 * 24)
+
+
+def _user_daily_token_key(user_id) -> str:
+    return f"loresmith_ai_tokens_{date.today().isoformat()}_{user_id}"
+
+
+def get_user_daily_tokens_used(user_id) -> int:
+    return int(cache.get(_user_daily_token_key(user_id), 0))
+
+
+def add_user_daily_tokens_used(user_id, tokens: int) -> None:
+    key = _user_daily_token_key(user_id)
     current = int(cache.get(key, 0))
     # expire after 24 hours
     cache.set(key, current + tokens, timeout=60 * 60 * 24)
@@ -90,8 +111,9 @@ class LoreAIService:
     mock responses, and normalizing outputs.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, user=None) -> None:
         self.config = _get_config()
+        self.user_id = getattr(user, "id", None)
 
         api_key = getattr(settings, "OPENAI_API_KEY", None)
         self._has_key = bool(api_key)
@@ -119,7 +141,8 @@ class LoreAIService:
 
     def _check_daily_budget(self) -> None:
         """
-        Ensure daily token budget is not exceeded.
+        Ensure daily token budget is not exceeded, both globally and
+        for the current user.
         """
         used = get_daily_tokens_used()
         if used >= self.config.daily_token_budget:
@@ -131,6 +154,21 @@ class LoreAIService:
             raise DailyBudgetExceeded(
                 "AI daily token budget exceeded. Try again tomorrow."
             )
+
+        if self.user_id is not None:
+            user_used = get_user_daily_tokens_used(self.user_id)
+            if user_used >= self.config.user_daily_token_budget:
+                logger.warning(
+                    "LoreAI user daily token budget exceeded. "
+                    "user_id=%s used=%s budget=%s",
+                    self.user_id,
+                    user_used,
+                    self.config.user_daily_token_budget,
+                )
+                raise DailyBudgetExceeded(
+                    "Your daily AI token budget exceeded. "
+                    "Try again tomorrow."
+                )
 
     # ---------- public API ----------
 
@@ -184,6 +222,8 @@ class LoreAIService:
 
         if total_tokens is not None:
             add_daily_tokens_used(total_tokens)
+            if self.user_id is not None:
+                add_user_daily_tokens_used(self.user_id, total_tokens)
             logger.info(
                 "LoreAI call model=%s prompt=%s completion=%s total=%s "
                 "daily_used=%s budget=%s",
